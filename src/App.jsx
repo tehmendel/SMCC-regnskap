@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -6,6 +6,11 @@ import Transactions from './pages/Transactions'
 import Categories from './pages/Categories'
 import AuditLog from './pages/AuditLog'
 import Users from './pages/Users'
+import Arrangements from './pages/arrangements/Arrangements'
+import ArrangementDetail from './pages/arrangements/ArrangementDetail'
+import AnnualAccounts from './pages/annual/AnnualAccounts'
+import PeriodAccounts from './pages/period/PeriodAccounts'
+import Vendors from './pages/Vendors'
 
 function ProtectedRoute({ children, requireAdmin }) {
   const { user, profile, loading, isAdmin } = useAuth()
@@ -15,39 +20,45 @@ function ProtectedRoute({ children, requireAdmin }) {
   return children
 }
 
+function NavItem({ to, icon, label, end }) {
+  return (
+    <NavLink to={to} end={end} className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
+      <span style={{ fontSize: 14 }}>{icon}</span> {label}
+    </NavLink>
+  )
+}
+
 function Sidebar() {
-  const { profile, signOut, isKasserer, isAdmin } = useAuth()
+  const { profile, signOut, isAdmin } = useAuth()
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-section">Navigasjon</div>
+      <div className="sidebar-section">Oversikt</div>
+      <NavItem to="/" icon="▣" label="Dashboard" end />
+      <NavItem to="/perioderegnskap" icon="≡" label="Perioderegnskap" />
+      <NavItem to="/aarsregnskap" icon="◫" label="Årsregnskap" />
 
-      <NavLink to="/" end className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-        <span>⬛</span> Oversikt
-      </NavLink>
+      <div className="sidebar-section">Arrangementer</div>
+      <NavItem to="/arrangementer" icon="⬡" label="Alle arrangementer" />
 
-      <NavLink to="/transaksjoner" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-        <span>↕</span> Transaksjoner
-      </NavLink>
-
-      <NavLink to="/kategorier" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-        <span>◈</span> Kategorier
-      </NavLink>
+      <div className="sidebar-section">Regnskap</div>
+      <NavItem to="/transaksjoner" icon="↕" label="Transaksjoner" />
+      <NavItem to="/kategorier" icon="◈" label="Kategorier" />
+      <NavItem to="/leverandorer" icon="◎" label="Leverandører" />
 
       {isAdmin && (
         <>
           <div className="sidebar-section">Admin</div>
-          <NavLink to="/brukere" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-            <span>◎</span> Brukere
-          </NavLink>
-          <NavLink to="/logg" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-            <span>◉</span> Endringslogg
-          </NavLink>
+          <NavItem to="/brukere" icon="◉" label="Brukere" />
+          <NavItem to="/logg" icon="◌" label="Endringslogg" />
         </>
       )}
 
       <div style={{ flex: 1 }} />
-      <button className="sidebar-item" onClick={signOut} style={{ marginTop: 'auto' }}>
+      <div style={{ padding: '8px 20px', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+        {profile?.full_name}
+      </div>
+      <button className="sidebar-item" onClick={signOut}>
         <span>⊗</span> Logg ut
       </button>
     </aside>
@@ -63,14 +74,19 @@ function AppShell() {
         <span className="topbar-logo">Sandnes MC — Regnskap</span>
         <div className="topbar-sep" />
         <span className="topbar-user">{profile?.full_name}</span>
-        <span className={`topbar-role`}>{profile?.role}</span>
+        <span className="topbar-role">{profile?.role}</span>
       </header>
       <Sidebar />
       <main className="main">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/perioderegnskap" element={<PeriodAccounts />} />
+          <Route path="/aarsregnskap" element={<AnnualAccounts />} />
+          <Route path="/arrangementer" element={<Arrangements />} />
+          <Route path="/arrangementer/:id" element={<ArrangementDetail />} />
           <Route path="/transaksjoner" element={<Transactions />} />
           <Route path="/kategorier" element={<Categories />} />
+          <Route path="/leverandorer" element={<Vendors />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
         </Routes>
@@ -91,11 +107,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={user && profile ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/*" element={
-        <ProtectedRoute>
-          <AppShell />
-        </ProtectedRoute>
-      } />
+      <Route path="/*" element={<ProtectedRoute><AppShell /></ProtectedRoute>} />
     </Routes>
   )
 }
