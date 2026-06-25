@@ -85,11 +85,13 @@ Regler for vendors:
       content = [{ type: 'text', text: `Kontoutskrift:\n\n${text}\n\n${prompt}` }]
     }
 
-    const response = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 32000,
       messages: [{ role: 'user', content }],
     })
+
+    const response = await stream.finalMessage()
 
     if (response.stop_reason === 'max_tokens') {
       throw new Error('Dokumentet er for stort – prøv å dele det opp i kortere perioder')
