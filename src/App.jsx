@@ -12,6 +12,7 @@ import AnnualAccounts from './pages/annual/AnnualAccounts'
 import PeriodAccounts from './pages/period/PeriodAccounts'
 import Vendors from './pages/Vendors'
 import BankImport from './pages/BankImport'
+import Members from './pages/Members'
 
 function ProtectedRoute({ children, requireAdmin }) {
   const { user, profile, loading, isAdmin } = useAuth()
@@ -43,6 +44,7 @@ function Sidebar() {
       <NavItem to="/arrangementer" icon="⬡" label="Alle arrangementer" />
 
       <div className="sidebar-section">Regnskap</div>
+      <NavItem to="/medlemmer" icon="◉" label="Medlemmer" />
       <NavItem to="/transaksjoner" icon="↕" label="Transaksjoner" />
       <NavItem to="/kategorier" icon="◈" label="Kategorier" />
       <NavItem to="/leverandorer" icon="◎" label="Leverandører" />
@@ -90,6 +92,7 @@ function AppShell() {
           <Route path="/kategorier" element={<Categories />} />
           <Route path="/leverandorer" element={<Vendors />} />
           <Route path="/bankimport" element={<BankImport />} />
+          <Route path="/medlemmer" element={<Members />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
         </Routes>

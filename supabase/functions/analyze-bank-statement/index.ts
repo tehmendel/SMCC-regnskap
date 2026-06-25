@@ -19,39 +19,51 @@ Deno.serve(async (req) => {
     if (!file) throw new Error('Ingen fil mottatt')
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY er ikke satt som hemmelighet i Supabase')
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY er ikke satt')
 
     const anthropic = new Anthropic({ apiKey })
 
     const categoryList = categories.map(c => `- ${c.name} (${c.type})`).join('\n')
 
-    const prompt = `Du er en regnskapsassistent for en norsk motorsykkelklubb. Analyser denne kontoutskriften og trekk ut alle transaksjoner.
+    const prompt = `Du er en regnskapsassistent for en norsk motorsykkelklubb. Analyser denne kontoutskriften.
 
 Tilgjengelige kategorier:
 ${categoryList}
 
-Returner KUN et JSON-array (ingen annen tekst, ingen forklaring) i dette formatet:
-[
-  {
-    "date": "YYYY-MM-DD",
-    "description": "beskrivelse fra kontoutskriften",
-    "amount": 123.45,
-    "type": "utgift",
-    "suggested_category_name": "kategori fra listen over",
-    "notes": ""
-  }
-]
+Returner KUN et JSON-objekt (ingen annen tekst, ingen forklaring):
+{
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "description": "beskrivelse fra kontoutskriften",
+      "amount": 123.45,
+      "type": "utgift",
+      "suggested_category_name": "kategori fra listen",
+      "notes": ""
+    }
+  ],
+  "vendors": [
+    {
+      "name": "Leverandørnavn (renset, uten dato/referanse)",
+      "suggested_category_name": "kategori fra listen",
+      "transaction_count": 3,
+      "total_amount": 1500.00
+    }
+  ]
+}
 
-Regler:
+Regler for transactions:
 - "type" er "utgift" hvis penger forlater kontoen, "inntekt" hvis penger kommer inn
-- "amount" skal alltid være et positivt tall
+- "amount" skal alltid være positivt
 - Datoformat: YYYY-MM-DD
-- Velg kategori fra listen. Hvis ingen passer godt, bruk nærmeste alternativ
-- Inkluder ALLE transaksjoner — ikke hopp over noen
-- Ignorer renter, gebyrer for kontoinformasjon og lignende systemlinjer bare hvis de ikke er reelle kostnader`
+- Inkluder ALLE transaksjoner
+
+Regler for vendors:
+- Grupper transaksjonene på leverandørnavn — rens bort dato, referansenummer og variabel tekst
+- Kun utgiftstransaksjoner
+- Hvert innslag er én unik leverandør`
 
     let content: Anthropic.MessageParam['content']
-
     const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 
     if (isPDF) {
@@ -80,19 +92,24 @@ Regler:
     })
 
     const text = (response.content[0] as Anthropic.TextBlock).text
-    const match = text.match(/\[[\s\S]*\]/)
-    if (!match) throw new Error('AI returnerte ikke gyldig JSON-liste')
+    const match = text.match(/\{[\s\S]*\}/)
+    if (!match) throw new Error('AI returnerte ikke gyldig JSON')
 
-    const transactions = JSON.parse(match[0])
+    const result = JSON.parse(match[0])
+    const transactions: Record<string, unknown>[] = result.transactions || []
+    const vendors: Record<string, unknown>[] = result.vendors || []
 
-    const enriched = transactions.map((t: Record<string, unknown>) => {
-      const cat = categories.find(
-        (c) => c.name === t.suggested_category_name && c.type === t.type,
-      )
+    const enrichedTx = transactions.map(t => {
+      const cat = categories.find(c => c.name === t.suggested_category_name && c.type === t.type)
       return { ...t, suggested_category_id: cat?.id ?? null }
     })
 
-    return new Response(JSON.stringify({ transactions: enriched }), {
+    const enrichedVendors = vendors.map(v => {
+      const cat = categories.find(c => c.name === v.suggested_category_name)
+      return { ...v, suggested_category_id: cat?.id ?? null }
+    })
+
+    return new Response(JSON.stringify({ transactions: enrichedTx, vendors: enrichedVendors }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err) {
