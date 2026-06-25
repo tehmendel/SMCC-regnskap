@@ -134,6 +134,17 @@ export default function Transactions() {
     load()
   }
 
+  const countByCategory = transactions.reduce((acc, t) => {
+    if (filterType !== 'alle' && t.type !== filterType) return acc
+    if (filterStatus !== 'alle' && (filterStatus === 'godkjent') !== t.approved) return acc
+    if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return acc
+    if (dateFrom && t.date < dateFrom) return acc
+    if (dateTo && t.date > dateTo) return acc
+    const key = t.category_id || '__ingen__'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
   const filtered = transactions.filter(t => {
     if (filterType !== 'alle' && t.type !== filterType) return false
     if (filterCategory && t.category_id !== filterCategory) return false
@@ -177,7 +188,7 @@ export default function Transactions() {
             <label className="form-label">Kategori</label>
             <select className="form-select" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
               <option value="">Alle kategorier</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({countByCategory[c.id] || 0})</option>)}
             </select>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
