@@ -161,6 +161,7 @@ export default function Members() {
       supabase.from('transactions')
         .select('id, date, description, amount')
         .eq('type', 'inntekt')
+        .eq('approved', true)
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`)
         .order('date', { ascending: false }),

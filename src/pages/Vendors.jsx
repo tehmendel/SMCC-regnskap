@@ -53,6 +53,21 @@ export default function Vendors() {
     load()
   }
 
+  async function saveVendor(v) {
+    const name = edits[v.id]?.name ?? v.name
+    const catId = edits[v.id]?.suggested_category_id !== undefined
+      ? edits[v.id].suggested_category_id
+      : v.suggested_category_id
+    await supabase.from('vendors').update({
+      name: name.trim(),
+      normalized_name: name.trim().toLowerCase().replace(/[^a-z0-9æøå]/g, ''),
+      suggested_category_id: catId || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', v.id)
+    setEdits(prev => { const n = { ...prev }; delete n[v.id]; return n })
+    load()
+  }
+
   const filtered = vendors.filter(v => v.name.toLowerCase().includes(search.toLowerCase()))
 
   function confColor(c) {
@@ -148,35 +163,61 @@ export default function Vendors() {
             <thead>
               <tr>
                 <th>Leverandør</th>
-                <th>Foreslått kategori</th>
-                <th>Avdeling</th>
+                <th>Kategori</th>
                 <th className="text-right">Transaksjoner</th>
                 <th className="text-right">Totalt beløp</th>
                 <th>Sist sett</th>
                 <th>Konfidens</th>
+                <th style={{ width: 72 }} />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(v => (
-                <tr key={v.id}>
-                  <td style={{ fontWeight: 500 }}>{v.name}</td>
-                  <td style={{ color: 'var(--dim)' }}>{v.categories?.name || '—'}</td>
-                  <td style={{ color: 'var(--dim)' }}>{v.suggested_department || '—'}</td>
-                  <td className="text-right text-mono">{v.transaction_count}</td>
-                  <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(v.total_amount)}</td>
-                  <td style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(v.last_seen)}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 48, height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
-                        <div style={{ width: `${v.confidence * 100}%`, height: '100%', background: confColor(v.confidence), borderRadius: 2 }} />
+              {filtered.map(v => {
+                const hasEdits = !!edits[v.id]
+                return (
+                  <tr key={v.id}>
+                    <td>
+                      <input
+                        className="form-input"
+                        style={{ fontSize: 13, padding: '3px 8px', minWidth: 180 }}
+                        value={getEdit(v, 'name') ?? v.name}
+                        onChange={e => setEdit(v.id, 'name', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        className="form-select"
+                        style={{ fontSize: 12, padding: '3px 8px' }}
+                        value={getEdit(v, 'suggested_category_id') ?? (v.suggested_category_id || '')}
+                        onChange={e => setEdit(v.id, 'suggested_category_id', e.target.value || null)}
+                      >
+                        <option value="">Ingen kategori</option>
+                        {categories.map(c => (
+                          <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="text-right text-mono">{v.transaction_count}</td>
+                    <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(v.total_amount)}</td>
+                    <td style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(v.last_seen)}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 48, height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ width: `${v.confidence * 100}%`, height: '100%', background: confColor(v.confidence), borderRadius: 2 }} />
+                        </div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: confColor(v.confidence) }}>
+                          {(v.confidence * 100).toFixed(0)}%
+                        </span>
                       </div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: confColor(v.confidence) }}>
-                        {(v.confidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      {hasEdits && (
+                        <button className="btn btn-sm btn-primary" onClick={() => saveVendor(v)}>Lagre</button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

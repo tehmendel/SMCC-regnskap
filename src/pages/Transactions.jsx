@@ -17,8 +17,7 @@ function Modal({ onClose, onSaved, editItem }) {
     supabase.from('categories').select('*').eq('active', true).then(({ data }) => setCategories(data || []))
   }, [])
 
-  async function save(e) {
-    e.preventDefault()
+  async function save(andApprove = false) {
     setError('')
     setSaving(true)
     const { categories: _cat, ...formFields } = form
@@ -27,6 +26,11 @@ function Modal({ onClose, onSaved, editItem }) {
       amount: parseFloat(form.amount),
       created_by: profile.id,
       updated_by: profile.id,
+    }
+    if (andApprove) {
+      payload.approved = true
+      payload.approved_by = profile.id
+      payload.approved_at = new Date().toISOString()
     }
     let result
     if (editItem) {
@@ -44,7 +48,7 @@ function Modal({ onClose, onSaved, editItem }) {
       <div className="modal">
         <div className="modal-title">{editItem ? 'Rediger transaksjon' : 'Ny transaksjon'}</div>
         {error && <div className="alert alert-error">{error}</div>}
-        <form onSubmit={save}>
+        <form onSubmit={e => { e.preventDefault(); save(false) }}>
           <div className="form-group">
             <label className="form-label">Dato</label>
             <input className="form-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} required />
@@ -81,7 +85,10 @@ function Modal({ onClose, onSaved, editItem }) {
           </div>
           <div className="flex gap-8 mt-16">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Lagrer…' : 'Lagre'}</button>
+            <button type="submit" className="btn btn-secondary" disabled={saving}>{saving ? 'Lagrer…' : 'Lagre'}</button>
+            <button type="button" className="btn btn-primary" disabled={saving} onClick={() => save(true)}>
+              {saving ? 'Lagrer…' : 'Lagre og godkjenn'}
+            </button>
           </div>
         </form>
       </div>
