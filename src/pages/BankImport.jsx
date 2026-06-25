@@ -65,10 +65,16 @@ export default function BankImport() {
         body: formData,
       })
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         let msg = `Serverfeil (${res.status})`
-        try { const j = await res.json(); msg = j.error || msg } catch (_) {}
+        try {
+          const text = await res.text()
+          try { msg = JSON.parse(text)?.error || msg } catch { msg = text.slice(0, 200) || msg }
+        } catch (_) {}
         throw new Error(msg)
+      }
+      if (!res.body) {
+        throw new Error('Nettleseren støtter ikke strømmende svar. Bruk Chrome eller Firefox.')
       }
 
       const reader = res.body.getReader()
@@ -93,7 +99,8 @@ export default function BankImport() {
           }
           if (!eventType || !eventData) continue
 
-          const data = JSON.parse(eventData)
+          let data
+          try { data = JSON.parse(eventData) } catch { continue }
 
           if (eventType === 'log') {
             setLogs(prev => [...prev, data.message])
