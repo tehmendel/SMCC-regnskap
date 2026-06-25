@@ -87,9 +87,13 @@ Regler for vendors:
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8096,
+      max_tokens: 32000,
       messages: [{ role: 'user', content }],
     })
+
+    if (response.stop_reason === 'max_tokens') {
+      throw new Error('Dokumentet er for stort – prøv å dele det opp i kortere perioder')
+    }
 
     const text = (response.content[0] as Anthropic.TextBlock).text
     const match = text.match(/\{[\s\S]*\}/)
