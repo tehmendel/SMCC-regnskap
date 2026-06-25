@@ -21,8 +21,9 @@ function Modal({ onClose, onSaved, editItem }) {
     e.preventDefault()
     setError('')
     setSaving(true)
+    const { categories: _cat, ...formFields } = form
     const payload = {
-      ...form,
+      ...formFields,
       amount: parseFloat(form.amount),
       created_by: profile.id,
       updated_by: profile.id,
