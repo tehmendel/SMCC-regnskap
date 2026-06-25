@@ -77,8 +77,7 @@ Regler:
       model: 'claude-sonnet-4-6',
       max_tokens: 8096,
       messages: [{ role: 'user', content }],
-      betas: isPDF ? ['pdfs-2024-09-25'] : undefined,
-    } as Anthropic.MessageCreateParamsNonStreaming)
+    })
 
     const text = (response.content[0] as Anthropic.TextBlock).text
     const match = text.match(/\[[\s\S]*\]/)
