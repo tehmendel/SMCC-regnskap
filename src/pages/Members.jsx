@@ -90,6 +90,12 @@ function LinkModal({ transaction, members, year, onClose, onSaved }) {
   async function save() {
     if (!memberId) return
     setSaving(true)
+    if (!transaction.approved) {
+      await supabase.from('transactions').update({
+        approved: true,
+        approved_at: new Date().toISOString(),
+      }).eq('id', transaction.id)
+    }
     await supabase.from('member_payments').insert({
       member_id: memberId,
       year,
@@ -159,9 +165,8 @@ export default function Members() {
       supabase.from('members').select('*').order('full_name'),
       supabase.from('member_payments').select('*').eq('year', year),
       supabase.from('transactions')
-        .select('id, date, description, amount')
+        .select('id, date, description, amount, approved')
         .eq('type', 'inntekt')
-        .eq('approved', true)
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`)
         .order('date', { ascending: false }),
@@ -377,6 +382,7 @@ export default function Members() {
                     <th>Dato</th>
                     <th>Beskrivelse</th>
                     <th className="text-right">Beløp</th>
+                    <th>Status</th>
                     {isKasserer && <th />}
                   </tr>
                 </thead>
@@ -386,10 +392,15 @@ export default function Members() {
                       <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{t.date}</td>
                       <td style={{ fontSize: 13 }}>{t.description}</td>
                       <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                      <td>
+                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                          {t.approved ? 'Godkjent' : 'Venter'}
+                        </span>
+                      </td>
                       {isKasserer && (
                         <td>
                           <button className="btn btn-sm btn-secondary" onClick={() => setLinkTx(t)}>
-                            Koble til medlem
+                            {t.approved ? 'Koble til medlem' : 'Godkjenn og koble'}
                           </button>
                         </td>
                       )}

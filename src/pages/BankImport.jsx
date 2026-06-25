@@ -46,6 +46,7 @@ export default function BankImport() {
   const inputRef = useRef()
   const timerRef = useRef(null)
   const startRef = useRef(null)
+  const fileHashRef = useRef(null)
 
   function startTimer() {
     const t0 = Date.now()
@@ -68,6 +69,12 @@ export default function BankImport() {
     setLogs(prev => [{ elapsed: e, message }, ...prev])
   }
 
+  async function computeHash(file) {
+    const buf = await file.arrayBuffer()
+    const hashBuf = await crypto.subtle.digest('SHA-256', buf)
+    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+
   async function analyze(file) {
     setError('')
     setRows([])
@@ -76,16 +83,32 @@ export default function BankImport() {
     setLogs([])
     setProgress(0)
     setFileInfo({ name: file.name, size: file.size })
-    setAnalyzeStart(Date.now())
-    startTimer()
     setAnalyzing(true)
 
     try {
+      // Duplicate check before starting timer/analysis
+      const fileHash = await computeHash(file)
+      const { data: existing } = await supabase
+        .from('bank_imports')
+        .select('filename, imported_at')
+        .eq('file_hash', fileHash)
+        .maybeSingle()
+
+      if (existing) {
+        const d = new Date(existing.imported_at).toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' })
+        const go = window.confirm(`"${existing.filename}" er allerede importert (${d}).\n\nVil du importere samme fil på nytt?`)
+        if (!go) { setAnalyzing(false); return }
+      }
+
+      setAnalyzeStart(Date.now())
+      startTimer()
+
       const [catsRes, vendorsRes, sessionRes] = await Promise.all([
         supabase.from('categories').select('*').eq('active', true).order('name'),
         supabase.from('vendors').select('name'),
         supabase.auth.getSession(),
       ])
+      fileHashRef.current = fileHash
       const cats = catsRes.data || []
       setCategories(cats)
       const existingNorm = new Set((vendorsRes.data || []).map(v => normalize(v.name)))
@@ -219,6 +242,18 @@ export default function BankImport() {
         })),
         { onConflict: 'name', ignoreDuplicates: true }
       )
+    }
+
+    // Save import record for duplicate detection
+    if (fileHashRef.current && fileInfo) {
+      await supabase.from('bank_imports').upsert({
+        file_hash: fileHashRef.current,
+        filename: fileInfo.name,
+        file_size: fileInfo.size,
+        transaction_count: selected.length,
+        imported_by: profile.id,
+        imported_at: new Date().toISOString(),
+      }, { onConflict: 'file_hash' })
     }
 
     setImportDone(selected.length)
