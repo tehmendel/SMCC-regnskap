@@ -10,16 +10,32 @@ function normalize(name) {
   return name.toLowerCase().replace(/[^a-z0-9æøå]/g, '').trim()
 }
 
-function fmtSeconds(s) {
-  if (s < 60) return `${Math.round(s)} sek`
-  return `${Math.round(s / 60)} min`
+function fmtElapsed(s) {
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+function fmtSize(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
+function fmtRemaining(elapsed, percent) {
+  if (percent < 15) return null
+  const total = elapsed / (percent / 100)
+  const rem = Math.max(0, total - elapsed)
+  if (rem < 60) return `${Math.round(rem)} sek gjenstår`
+  return `${Math.round(rem / 60)} min gjenstår`
 }
 
 export default function BankImport() {
   const { profile } = useAuth()
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [logs, setLogs] = useState([])
+  const [logs, setLogs] = useState([])        // [{ elapsed, message }] newest first
+  const [elapsed, setElapsed] = useState(0)
+  const [fileInfo, setFileInfo] = useState(null)
   const [analyzeStart, setAnalyzeStart] = useState(null)
   const [rows, setRows] = useState([])
   const [vendorSuggestions, setVendorSuggestions] = useState([])
@@ -28,11 +44,29 @@ export default function BankImport() {
   const [importing, setImporting] = useState(false)
   const [importDone, setImportDone] = useState(0)
   const inputRef = useRef()
-  const logRef = useRef()
+  const timerRef = useRef(null)
+  const startRef = useRef(null)
 
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [logs])
+  function startTimer() {
+    const t0 = Date.now()
+    startRef.current = t0
+    setElapsed(0)
+    clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - t0) / 1000))
+    }, 500)
+  }
+
+  function stopTimer() {
+    clearInterval(timerRef.current)
+  }
+
+  useEffect(() => () => clearInterval(timerRef.current), [])
+
+  function addLog(message) {
+    const e = Math.floor((Date.now() - (startRef.current || Date.now())) / 1000)
+    setLogs(prev => [{ elapsed: e, message }, ...prev])
+  }
 
   async function analyze(file) {
     setError('')
@@ -41,7 +75,9 @@ export default function BankImport() {
     setImportDone(0)
     setLogs([])
     setProgress(0)
+    setFileInfo({ name: file.name, size: file.size })
     setAnalyzeStart(Date.now())
+    startTimer()
     setAnalyzing(true)
 
     try {
@@ -74,7 +110,7 @@ export default function BankImport() {
         throw new Error(msg)
       }
       if (!res.body) {
-        throw new Error('Nettleseren støtter ikke strømmende svar. Bruk Chrome eller Firefox.')
+        throw new Error('Nettleseren støtter ikke strømmende svar. Prøv Chrome eller Firefox.')
       }
 
       const reader = res.body.getReader()
@@ -84,13 +120,15 @@ export default function BankImport() {
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (value) sseBuffer += decoder.decode(value, { stream: !done })
 
-        sseBuffer += decoder.decode(value, { stream: true })
-        const parts = sseBuffer.split('\n\n')
-        sseBuffer = parts.pop() ?? ''
+        // When done, process everything; otherwise keep last incomplete event in buffer
+        const allParts = sseBuffer.split('\n\n')
+        const parts = done ? allParts : allParts.slice(0, -1)
+        sseBuffer = done ? '' : (allParts.at(-1) ?? '')
 
         for (const part of parts) {
+          if (!part.trim()) continue
           let eventType = ''
           let eventData = ''
           for (const line of part.split('\n')) {
@@ -103,7 +141,7 @@ export default function BankImport() {
           try { data = JSON.parse(eventData) } catch { continue }
 
           if (eventType === 'log') {
-            setLogs(prev => [...prev, data.message])
+            addLog(data.message)
           } else if (eventType === 'progress') {
             setProgress(data.percent)
           } else if (eventType === 'result') {
@@ -112,9 +150,11 @@ export default function BankImport() {
             throw new Error(data.message)
           }
         }
+
+        if (done) break
       }
 
-      if (!finalResult) throw new Error('Ingen data mottatt fra serveren. Prøv igjen.')
+      if (!finalResult) throw new Error('Ingen resultat mottatt fra serveren. Prøv igjen.')
 
       setRows((finalResult.transactions || []).map((t, i) => ({ ...t, _id: i, selected: true })))
       const newVendors = (finalResult.vendors || [])
@@ -125,8 +165,9 @@ export default function BankImport() {
     } catch (e) {
       const msg = e.message || 'Ukjent feil'
       setError(msg)
-      setLogs(prev => [...prev, `Feil: ${msg}`])
+      addLog(`Feil: ${msg}`)
     } finally {
+      stopTimer()
       setAnalyzing(false)
     }
   }
@@ -147,7 +188,6 @@ export default function BankImport() {
 
   async function importAll() {
     setImporting(true)
-
     const selected = rows.filter(r => r.selected)
     const txPayload = selected.map(r => ({
       date: r.date,
@@ -189,11 +229,7 @@ export default function BankImport() {
 
   const selectedCount = rows.filter(r => r.selected).length
   const includedVendors = vendorSuggestions.filter(v => v.include).length
-
-  const elapsed = analyzeStart ? (Date.now() - analyzeStart) / 1000 : 0
-  const estimatedRemaining = analyzing && progress > 15
-    ? Math.max(0, elapsed / (progress / 100) - elapsed)
-    : null
+  const remaining = fmtRemaining(elapsed, progress)
 
   return (
     <div>
@@ -216,7 +252,7 @@ export default function BankImport() {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
             Eventuelle leverandørforslag venter på godkjenning i Leverandørregisteret.
           </div>
-          <button className="btn btn-primary" onClick={() => { setImportDone(0); setLogs([]); setProgress(0) }}>
+          <button className="btn btn-primary" onClick={() => { setImportDone(0); setLogs([]); setProgress(0); setFileInfo(null) }}>
             Last opp ny kontoutskrift
           </button>
         </div>
@@ -241,80 +277,107 @@ export default function BankImport() {
         </div>
       )}
 
-      {analyzing && (
-        <div className="card" style={{ padding: 24 }}>
-          {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <div style={{ fontWeight: 500 }}>Analyserer kontoutskrift…</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              {progress.toFixed(0)}%
-              {estimatedRemaining !== null && (
-                <span style={{ marginLeft: 12 }}>ca. {fmtSeconds(estimatedRemaining)} gjenstår</span>
+      {(analyzing || (logs.length > 0 && rows.length === 0 && !importDone)) && (
+        <div className="card" style={{ padding: 20 }}>
+          {/* Header row: file info + timer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <span style={{ fontWeight: 500 }}>{fileInfo?.name}</span>
+              {fileInfo && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>
+                  {fmtSize(fileInfo.size)}
+                </span>
               )}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 600, letterSpacing: 2 }}>
+              {fmtElapsed(elapsed)}
             </div>
           </div>
 
           {/* Progress bar */}
-          <div style={{ height: 6, background: 'var(--graphite)', borderRadius: 3, overflow: 'hidden', marginBottom: 16 }}>
-            <div style={{
-              height: '100%',
-              width: `${progress}%`,
-              background: progress === 100 ? 'var(--green)' : 'var(--accent)',
-              borderRadius: 3,
-              transition: 'width 0.4s ease',
-            }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <div style={{ flex: 1, height: 8, background: 'var(--graphite)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${progress}%`,
+                background: progress === 100 ? 'var(--green)' : 'var(--accent)',
+                borderRadius: 4,
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 36, textAlign: 'right' }}>
+              {progress.toFixed(0)}%
+            </div>
+            {remaining && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 110 }}>{remaining}</div>
+            )}
           </div>
 
-          {/* Log */}
-          <div
-            ref={logRef}
-            style={{
-              height: 220,
-              overflowY: 'auto',
-              background: 'var(--surface)',
-              borderRadius: 6,
-              padding: '10px 14px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11,
-              lineHeight: 1.7,
-              color: 'var(--dim)',
-            }}
-          >
-            {logs.map((line, i) => (
-              <div key={i} style={{ color: line.startsWith('Feil') ? 'var(--red)' : line.startsWith('Fullført') ? 'var(--green)' : 'var(--dim)' }}>
-                {line}
-              </div>
-            ))}
-            {logs.length === 0 && <div style={{ color: 'var(--muted)' }}>Starter…</div>}
+          {/* Log table */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface)' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', width: 52, color: 'var(--muted)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>Tid</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>Hendelse</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.length === 0 && (
+                  <tr>
+                    <td colSpan={2} style={{ padding: '12px 10px', color: 'var(--muted)' }}>Starter…</td>
+                  </tr>
+                )}
+                {logs.map((entry, i) => {
+                  const isTx = entry.message.startsWith('[20')
+                  const isErr = entry.message.startsWith('Feil')
+                  const isDone = entry.message.startsWith('Fullført')
+                  return (
+                    <tr key={i} style={{ borderBottom: i < logs.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <td style={{ padding: '4px 10px', color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+                        {fmtElapsed(entry.elapsed)}
+                      </td>
+                      <td style={{
+                        padding: '4px 10px',
+                        color: isErr ? 'var(--red)' : isDone ? 'var(--green)' : isTx ? 'var(--text)' : 'var(--dim)',
+                        fontWeight: isTx ? 500 : 400,
+                      }}>
+                        {entry.message}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Show log summary after analysis (collapsed) */}
-      {!analyzing && logs.length > 0 && rows.length > 0 && (
-        <details style={{ marginBottom: 16 }}>
-          <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', userSelect: 'none' }}>
-            Vis analyselogg ({logs.length} meldinger)
-          </summary>
-          <div style={{
-            marginTop: 8,
-            background: 'var(--surface)',
-            borderRadius: 6,
-            padding: '10px 14px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            lineHeight: 1.7,
-            color: 'var(--dim)',
-            maxHeight: 200,
-            overflowY: 'auto',
-          }}>
-            {logs.map((line, i) => <div key={i}>{line}</div>)}
-          </div>
-        </details>
-      )}
-
       {rows.length > 0 && (
         <>
+          {/* Collapsed log summary */}
+          {logs.length > 0 && (
+            <details style={{ marginBottom: 16 }}>
+              <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', userSelect: 'none' }}>
+                Analyselogg — {fileInfo?.name} ({fmtSize(fileInfo?.size || 0)}) · {fmtElapsed(elapsed)} · {logs.length} hendelser
+              </summary>
+              <div style={{ marginTop: 8, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                  <tbody>
+                    {logs.map((entry, i) => (
+                      <tr key={i} style={{ borderBottom: i < logs.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <td style={{ padding: '3px 10px', color: 'var(--dim)', width: 52 }}>{fmtElapsed(entry.elapsed)}</td>
+                        <td style={{ padding: '3px 10px', color: entry.message.startsWith('Feil') ? 'var(--red)' : 'var(--dim)' }}>
+                          {entry.message}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
           {/* Transactions */}
           <div style={{ fontWeight: 500, marginBottom: 10 }}>
             Transaksjoner
@@ -431,7 +494,7 @@ export default function BankImport() {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button className="btn btn-secondary" onClick={() => { setRows([]); setVendorSuggestions([]); setLogs([]); setProgress(0) }}>
+            <button className="btn btn-secondary" onClick={() => { setRows([]); setVendorSuggestions([]); setLogs([]); setProgress(0); setFileInfo(null) }}>
               Avbryt
             </button>
             <button className="btn btn-primary" disabled={importing || selectedCount === 0} onClick={importAll}>
