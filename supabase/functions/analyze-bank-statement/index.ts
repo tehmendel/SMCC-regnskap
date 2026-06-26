@@ -113,21 +113,32 @@ Regler for vendors:
           buffer += chunk
 
           const matches = [...buffer.matchAll(/"date":\s*"(\d{4}-\d{2}-\d{2})"/g)]
-          if (matches.length > reportedCount) {
-            for (let i = reportedCount; i < matches.length; i++) {
-              const idx = matches[i].index ?? 0
-              const snippet = buffer.substring(Math.max(0, idx - 30), idx + 350)
-              const descMatch = snippet.match(/"description":\s*"([^"]+)"/)
-              const amtMatch = snippet.match(/"amount":\s*([\d.]+)/)
-              const typeMatch = snippet.match(/"type":\s*"(utgift|inntekt)"/)
-              const desc = (descMatch?.[1] ?? '').substring(0, 50)
-              const amt = amtMatch ? `${parseFloat(amtMatch[1]).toFixed(0)} kr` : ''
-              const sign = typeMatch?.[1] === 'inntekt' ? '+' : '−'
-              send('log', { message: `[${matches[i][1]}] ${desc}  ${sign}${amt}` })
-            }
-            reportedCount = matches.length
-            send('progress', { percent: Math.min(12 + reportedCount * 1.2, 85) })
+
+          for (let i = reportedCount; i < matches.length; i++) {
+            const idx = matches[i].index ?? 0
+
+            // Find the closing brace of this transaction object.
+            // Stop if it's more than 800 chars away (object not yet complete in buffer).
+            const closeIdx = buffer.indexOf('}', idx)
+            if (closeIdx === -1 || closeIdx > idx + 800) break
+
+            const snippet = buffer.substring(Math.max(0, idx - 40), closeIdx + 1)
+            const descMatch = snippet.match(/"description":\s*"([^"]*)"/)
+            const amtMatch  = snippet.match(/"amount":\s*([\d.]+)/)
+            const typeMatch = snippet.match(/"type":\s*"(utgift|inntekt)"/)
+
+            // Wait for next chunk if key fields are missing
+            if (!descMatch || !amtMatch) break
+
+            const desc = descMatch[1].substring(0, 60)
+            const amt  = Math.round(parseFloat(amtMatch[1]))
+            const sign = typeMatch?.[1] === 'inntekt' ? '+' : '−'
+            const amtStr = amt.toLocaleString('nb-NO')
+            send('log', { message: `[${matches[i][1]}] ${desc} ${sign}${amtStr} kr`, type: typeMatch?.[1] ?? 'utgift' })
+            reportedCount = i + 1
           }
+
+          send('progress', { percent: Math.min(12 + reportedCount * 1.2, 85) })
         })
 
         const response = await aiStream.finalMessage()

@@ -364,19 +364,23 @@ export default function BankImport() {
                   </tr>
                 )}
                 {logs.map((entry, i) => {
-                  const isTx = entry.message.startsWith('[20')
+                  const isTx  = entry.message.startsWith('[20')
                   const isErr = entry.message.startsWith('Feil')
                   const isDone = entry.message.startsWith('Fullført')
+                  const isInntekt = isTx && entry.message.includes(' +')
+                  const isUtgift  = isTx && entry.message.includes(' −')
+                  const msgColor = isErr ? 'var(--red)'
+                    : isDone ? 'var(--green)'
+                    : isInntekt ? 'var(--green)'
+                    : isUtgift  ? '#e87474'
+                    : isTx ? 'var(--text)'
+                    : 'var(--dim)'
                   return (
                     <tr key={i} style={{ borderBottom: i < logs.length - 1 ? '1px solid var(--border)' : 'none' }}>
                       <td style={{ padding: '4px 10px', color: 'var(--dim)', whiteSpace: 'nowrap' }}>
                         {fmtElapsed(entry.elapsed)}
                       </td>
-                      <td style={{
-                        padding: '4px 10px',
-                        color: isErr ? 'var(--red)' : isDone ? 'var(--green)' : isTx ? 'var(--text)' : 'var(--dim)',
-                        fontWeight: isTx ? 500 : 400,
-                      }}>
+                      <td style={{ padding: '4px 10px', color: msgColor, fontWeight: isTx ? 500 : 400 }}>
                         {entry.message}
                       </td>
                     </tr>
@@ -399,14 +403,19 @@ export default function BankImport() {
               <div style={{ marginTop: 8, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
                   <tbody>
-                    {logs.map((entry, i) => (
-                      <tr key={i} style={{ borderBottom: i < logs.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                        <td style={{ padding: '3px 10px', color: 'var(--dim)', width: 52 }}>{fmtElapsed(entry.elapsed)}</td>
-                        <td style={{ padding: '3px 10px', color: entry.message.startsWith('Feil') ? 'var(--red)' : 'var(--dim)' }}>
-                          {entry.message}
-                        </td>
-                      </tr>
-                    ))}
+                    {logs.map((entry, i) => {
+                      const isTx = entry.message.startsWith('[20')
+                      const isInntekt = isTx && entry.message.includes(' +')
+                      const isUtgift  = isTx && entry.message.includes(' −')
+                      return (
+                        <tr key={i} style={{ borderBottom: i < logs.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <td style={{ padding: '3px 10px', color: 'var(--dim)', width: 52 }}>{fmtElapsed(entry.elapsed)}</td>
+                          <td style={{ padding: '3px 10px', color: entry.message.startsWith('Feil') ? 'var(--red)' : isInntekt ? 'var(--green)' : isUtgift ? '#e87474' : 'var(--dim)' }}>
+                            {entry.message}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
