@@ -189,7 +189,7 @@ th {
   border-bottom: 1px solid var(--border);
 }
 td {
-  padding: 12px 14px;
+  padding: 6px 12px;
   font-size: 13px;
   color: var(--white);
   border-bottom: 1px solid rgba(46,51,64,0.5);

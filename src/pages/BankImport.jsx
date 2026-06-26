@@ -265,6 +265,13 @@ export default function BankImport() {
     setImporting(true)
     const selected = rows.filter(r => r.selected)
 
+    // Load approved vendors for matching
+    const { data: knownVendors } = await supabase
+      .from('vendors')
+      .select('id, normalized_name, suggested_category_id, auto_approve, confidence')
+      .eq('approved', true)
+    const vendorList = knownVendors || []
+
     // Create import record first so we can link transactions to it
     let importId = null
     if (fileHashRef.current && fileInfo) {
@@ -279,18 +286,26 @@ export default function BankImport() {
       importId = imp?.id ?? null
     }
 
-    const txPayload = selected.map(r => ({
-      date: r.date,
-      description: r.description,
-      amount: parseFloat(r.amount),
-      type: r.type,
-      category_id: r.suggested_category_id || null,
-      notes: r.notes || '',
-      created_by: profile.id,
-      updated_by: profile.id,
-      approved: false,
-      bank_import_id: importId,
-    }))
+    const txPayload = selected.map(r => {
+      const normDesc = normalize(r.description)
+      const matched = vendorList.find(v => normDesc.includes(v.normalized_name) || v.normalized_name.includes(normDesc.slice(0, 8)))
+      const autoApprove = matched?.auto_approve === true
+      return {
+        date: r.date,
+        description: r.description,
+        amount: parseFloat(r.amount),
+        type: r.type,
+        category_id: r.suggested_category_id || matched?.suggested_category_id || null,
+        notes: r.notes || '',
+        created_by: profile.id,
+        updated_by: profile.id,
+        approved: autoApprove,
+        approved_by: autoApprove ? profile.id : null,
+        approved_at: autoApprove ? new Date().toISOString() : null,
+        bank_import_id: importId,
+        vendor_id: matched?.id || null,
+      }
+    })
 
     const { error: txErr } = await supabase.from('transactions').insert(txPayload)
     if (txErr) { setError(txErr.message); setImporting(false); return }

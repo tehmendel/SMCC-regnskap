@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
+import { ResizableTh } from '../components/ResizableTh'
 
 function fmt(amount) {
   return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
@@ -228,7 +229,49 @@ export default function Transactions() {
     return true
   })
 
-  const { isVisible } = prefs
+  function renderCell(t, key) {
+    switch (key) {
+      case 'date':
+        return <td key={key} className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
+      case 'description':
+        return <td key={key}>{t.description}</td>
+      case 'arrangement':
+        return <td key={key} style={{ fontSize: 11, color: 'var(--accent)' }}>{t.arrangements?.name || '—'}</td>
+      case 'category':
+        return <td key={key} style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+      case 'type':
+        return <td key={key}><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+      case 'amount':
+        return (
+          <td key={key} className="text-right">
+            <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+              {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+            </span>
+          </td>
+        )
+      case 'status':
+        return (
+          <td key={key}>
+            <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+              {t.approved ? 'Godkjent' : 'Venter'}
+            </span>
+          </td>
+        )
+      case 'notes':
+        return <td key={key} style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.notes || '—'}</td>
+      case 'imported':
+        return (
+          <td key={key}>
+            {t.bank_import_id
+              ? <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>
+              : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>}
+          </td>
+        )
+      default: return <td key={key} />
+    }
+  }
+
+  const hasAnyWidth = prefs.orderedVisible.some(c => prefs.getWidth(c.key))
 
   if (loading) return <div className="text-muted">Laster…</div>
 
@@ -319,70 +362,24 @@ export default function Transactions() {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
               <thead>
                 <tr>
-                  {isVisible('date')        && <th>Dato</th>}
-                  {isVisible('description') && <th>Beskrivelse</th>}
-                  {isVisible('arrangement') && <th>Arrangement</th>}
-                  {isVisible('category')    && <th>Kategori</th>}
-                  {isVisible('type')        && <th>Type</th>}
-                  {isVisible('amount')      && <th className="text-right">Beløp</th>}
-                  {isVisible('status')      && <th>Status</th>}
-                  {isVisible('notes')       && <th>Notater</th>}
-                  {isVisible('imported')    && <th>Import</th>}
-                  {isKasserer && isVisible('actions') && <th>Handlinger</th>}
+                  {prefs.orderedVisible.map(col => (
+                    <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
+                      className={col.key === 'amount' ? 'text-right' : ''}>
+                      {col.label}
+                    </ResizableTh>
+                  ))}
+                  {isKasserer && <th>Handlinger</th>}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(t => (
                   <tr key={t.id}>
-                    {isVisible('date') && (
-                      <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
-                    )}
-                    {isVisible('description') && (
-                      <td>{t.description}</td>
-                    )}
-                    {isVisible('arrangement') && (
-                      <td style={{ fontSize: 11, color: 'var(--accent)' }}>
-                        {t.arrangements?.name || '—'}
-                      </td>
-                    )}
-                    {isVisible('category') && (
-                      <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                    )}
-                    {isVisible('type') && (
-                      <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                    )}
-                    {isVisible('amount') && (
-                      <td className="text-right">
-                        <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                          {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                        </span>
-                      </td>
-                    )}
-                    {isVisible('status') && (
-                      <td>
-                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                          {t.approved ? 'Godkjent' : 'Venter'}
-                        </span>
-                      </td>
-                    )}
-                    {isVisible('notes') && (
-                      <td style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.notes || '—'}
-                      </td>
-                    )}
-                    {isVisible('imported') && (
-                      <td>
-                        {t.bank_import_id
-                          ? <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>
-                          : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-                        }
-                      </td>
-                    )}
-                    {isKasserer && isVisible('actions') && (
-                      <td>
+                    {prefs.orderedVisible.map(col => renderCell(t, col.key))}
+                    {isKasserer && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <div className="flex gap-8">
                           <button className="btn btn-sm btn-secondary"
                             onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>

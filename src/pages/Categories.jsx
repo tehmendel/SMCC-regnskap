@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
+import { ResizableTh } from '../components/ResizableTh'
 
 const COLUMNS = [
   { key: 'name',        label: 'Navn' },
@@ -120,7 +121,22 @@ export default function Categories() {
     const k = c.type; (acc[k] = acc[k] || []).push(c); return acc
   }, {})
 
-  const { isVisible } = prefs
+  function renderCell(c, key) {
+    switch (key) {
+      case 'name':        return <td key={key} style={{ fontWeight: 500 }}>{c.name}</td>
+      case 'description': return <td key={key} style={{ color: 'var(--muted)', fontSize: 13 }}>{c.description || '—'}</td>
+      case 'active':      return (
+        <td key={key}>
+          <span className={`badge ${c.active ? 'badge-approved' : 'badge-pending'}`}>
+            {c.active ? 'Aktiv' : 'Inaktiv'}
+          </span>
+        </td>
+      )
+      default: return <td key={key} />
+    }
+  }
+
+  const hasAnyWidth = prefs.orderedVisible.some(c => prefs.getWidth(c.key))
 
   if (loading) return <div className="text-muted">Laster…</div>
 
@@ -164,46 +180,26 @@ export default function Categories() {
               </span>
             </div>
             <div className="table-wrap">
-              <table>
+              <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
                 <thead>
                   <tr>
-                    {isVisible('name')        && <th>Navn</th>}
-                    {isVisible('description') && <th>Beskrivelse</th>}
-                    {isVisible('active')      && <th>Status</th>}
-                    {isAdmin && isVisible('actions') && <th style={{ width: 180 }} />}
+                    {prefs.orderedVisible.map(col => (
+                      <ResizableTh key={col.key} colKey={col.key} prefs={prefs}>{col.label}</ResizableTh>
+                    ))}
+                    {isAdmin && <th style={{ width: 180, whiteSpace: 'nowrap' }}>Handlinger</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {list.map(c => (
                     <tr key={c.id} style={{ opacity: c.active ? 1 : 0.55 }}>
-                      {isVisible('name') && (
-                        <td style={{ fontWeight: 500 }}>{c.name}</td>
-                      )}
-                      {isVisible('description') && (
-                        <td style={{ color: 'var(--muted)', fontSize: 13 }}>{c.description || '—'}</td>
-                      )}
-                      {isVisible('active') && (
-                        <td>
-                          <span className={`badge ${c.active ? 'badge-approved' : 'badge-pending'}`}>
-                            {c.active ? 'Aktiv' : 'Inaktiv'}
-                          </span>
-                        </td>
-                      )}
-                      {isAdmin && isVisible('actions') && (
+                      {prefs.orderedVisible.map(col => renderCell(c, col.key))}
+                      {isAdmin && (
                         <td style={{ whiteSpace: 'nowrap' }}>
                           <div className="flex gap-8">
-                            <button
-                              className="btn btn-sm btn-secondary"
-                              style={{ minWidth: 90 }}
-                              onClick={() => { setEditCat(c); setShowModal(true) }}>
-                              ✎ Rediger
-                            </button>
-                            <button
-                              className="btn btn-sm btn-danger"
-                              disabled={deleting === c.id}
-                              onClick={() => deleteCategory(c)}>
-                              {deleting === c.id ? '…' : 'Slett'}
-                            </button>
+                            <button className="btn btn-sm btn-secondary" style={{ minWidth: 90 }}
+                              onClick={() => { setEditCat(c); setShowModal(true) }}>✎ Rediger</button>
+                            <button className="btn btn-sm btn-danger" disabled={deleting === c.id}
+                              onClick={() => deleteCategory(c)}>{deleting === c.id ? '…' : 'Slett'}</button>
                           </div>
                         </td>
                       )}

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { fmtDate } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
+import { ResizableTh } from '../components/ResizableTh'
 
 const CSV_TEMPLATE = `full_name,email,phone,payment_type,join_date,end_date,active,in_reisekasse,notes
 Ola Nordmann,ola@example.com,99999999,monthly,2024-01-01,,true,false,
@@ -252,7 +253,45 @@ export default function MemberRegistry() {
     return true
   })
 
-  const { isVisible } = prefs
+  function renderCell(m, key) {
+    switch (key) {
+      case 'full_name':     return <td key={key} style={{ fontWeight: 500 }}>{m.full_name}</td>
+      case 'email':         return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.email || '—'}</td>
+      case 'phone':         return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.phone || '—'}</td>
+      case 'payment_type':  return (
+        <td key={key}>
+          <span className="badge" style={{ background: 'var(--graphite)', color: 'var(--dim)', fontSize: 10 }}>
+            {m.payment_type === 'yearly' ? 'Årlig' : 'Månedlig'}
+          </span>
+        </td>
+      )
+      case 'join_date':     return <td key={key} style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(m.join_date)}</td>
+      case 'end_date':      return <td key={key} style={{ fontSize: 12, color: m.end_date ? 'var(--red)' : 'var(--muted)' }}>{m.end_date ? fmtDate(m.end_date) : '—'}</td>
+      case 'in_reisekasse': return (
+        <td key={key}>
+          {isKasserer ? (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={m.in_reisekasse || false} onChange={() => toggleReisekasse(m)} />
+              <span style={{ fontSize: 11, color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)' }}>{m.in_reisekasse ? 'Ja' : 'Nei'}</span>
+            </label>
+          ) : (
+            <span style={{ color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)', fontSize: 12 }}>{m.in_reisekasse ? 'Ja' : '—'}</span>
+          )}
+        </td>
+      )
+      case 'active':        return (
+        <td key={key}>
+          <span className={`badge ${m.active ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
+            {m.active ? 'Aktiv' : 'Inaktiv'}
+          </span>
+        </td>
+      )
+      case 'notes':         return <td key={key} style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.notes || '—'}</td>
+      default:              return <td key={key} />
+    }
+  }
+
+  const hasAnyWidth = prefs.orderedVisible.some(c => prefs.getWidth(c.key))
 
   if (loading) return <div className="text-muted">Laster…</div>
 
@@ -406,19 +445,13 @@ export default function MemberRegistry() {
 
       <div className="card">
         <div className="table-wrap">
-          <table>
+          <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
             <thead>
               <tr>
-                {isVisible('full_name')     && <th>Navn</th>}
-                {isVisible('email')         && <th>E-post</th>}
-                {isVisible('phone')         && <th>Telefon</th>}
-                {isVisible('payment_type')  && <th>Betalingsform</th>}
-                {isVisible('join_date')     && <th>Innmeldt</th>}
-                {isVisible('end_date')      && <th>Utmeldt</th>}
-                {isVisible('in_reisekasse') && <th>Reisekassen</th>}
-                {isVisible('active')        && <th>Status</th>}
-                {isVisible('notes')         && <th>Notater</th>}
-                {isKasserer && isVisible('actions') && <th />}
+                {prefs.orderedVisible.map(col => (
+                  <ResizableTh key={col.key} colKey={col.key} prefs={prefs}>{col.label}</ResizableTh>
+                ))}
+                {isKasserer && <th style={{ width: 80 }} />}
               </tr>
             </thead>
             <tbody>
@@ -426,61 +459,9 @@ export default function MemberRegistry() {
                 <tr><td colSpan={99} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Ingen treff</td></tr>
               ) : filtered.map(m => (
                 <tr key={m.id}>
-                  {isVisible('full_name') && (
-                    <td style={{ fontWeight: 500 }}>{m.full_name}</td>
-                  )}
-                  {isVisible('email') && (
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.email || '—'}</td>
-                  )}
-                  {isVisible('phone') && (
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.phone || '—'}</td>
-                  )}
-                  {isVisible('payment_type') && (
-                    <td>
-                      <span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)', fontSize: 10 }}>
-                        {m.payment_type === 'yearly' ? 'Årlig' : 'Månedlig'}
-                      </span>
-                    </td>
-                  )}
-                  {isVisible('join_date') && (
-                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(m.join_date)}</td>
-                  )}
-                  {isVisible('end_date') && (
-                    <td style={{ fontSize: 12, color: m.end_date ? 'var(--red)' : 'var(--muted)' }}>
-                      {m.end_date ? fmtDate(m.end_date) : '—'}
-                    </td>
-                  )}
-                  {isVisible('in_reisekasse') && (
-                    <td>
-                      {isKasserer ? (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={m.in_reisekasse || false}
-                            onChange={() => toggleReisekasse(m)} />
-                          <span style={{ fontSize: 11, color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)' }}>
-                            {m.in_reisekasse ? 'Ja' : 'Nei'}
-                          </span>
-                        </label>
-                      ) : (
-                        <span style={{ color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)', fontSize: 12 }}>
-                          {m.in_reisekasse ? 'Ja' : '—'}
-                        </span>
-                      )}
-                    </td>
-                  )}
-                  {isVisible('active') && (
-                    <td>
-                      <span className={`badge ${m.active ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
-                        {m.active ? 'Aktiv' : 'Inaktiv'}
-                      </span>
-                    </td>
-                  )}
-                  {isVisible('notes') && (
-                    <td style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.notes || '—'}
-                    </td>
-                  )}
-                  {isKasserer && isVisible('actions') && (
-                    <td>
+                  {prefs.orderedVisible.map(col => renderCell(m, col.key))}
+                  {isKasserer && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
                       <div className="flex gap-8">
                         <button className="btn btn-sm btn-secondary"
                           onClick={() => { setEditMember(m); setShowModal(true) }}>✎</button>
