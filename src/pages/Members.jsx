@@ -7,6 +7,58 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Se
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
 
+// Normalize text for matching: lowercase, replace Norwegian chars, strip punctuation
+function normTx(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a')
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function scoreMatch(desc, member, hist) {
+  const d = normTx(desc)
+  const parts = normTx(member.full_name).split(' ').filter(p => p.length > 1)
+  if (!parts.length) return 0
+
+  const hits = parts.filter(p => d.includes(p)).length
+  const nameScore = hits / parts.length
+
+  // Historical boost: if past linked transactions for this member share the same description pattern
+  const memberHist = hist[member.id] || []
+  const histConfirmed = memberHist.some(h => {
+    const hd = normTx(h)
+    const hHits = parts.filter(p => hd.includes(p)).length
+    return hHits / parts.length >= 0.5
+  })
+
+  return Math.min(nameScore + (histConfirmed && nameScore > 0.5 ? 0.08 : 0), 1.0)
+}
+
+function getBestMatch(tx, members, hist) {
+  let best = null, bestScore = 0
+  for (const m of members) {
+    const s = scoreMatch(tx.description, m, hist)
+    if (s > bestScore) { bestScore = s; best = m }
+  }
+  return bestScore >= 0.45 ? { member: best, score: bestScore } : null
+}
+
+function ConfidenceBar({ score }) {
+  const pct = Math.round(score * 100)
+  const color = score >= 0.9 ? 'var(--green)' : score >= 0.7 ? 'var(--yellow)' : 'var(--accent)'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ display: 'inline-block', width: 40, height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
+        <span style={{ display: 'block', width: `${pct}%`, height: '100%', background: color, borderRadius: 2 }} />
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color }}>{pct}%</span>
+    </span>
+  )
+}
+
 function MemberModal({ member, onClose, onSaved }) {
   const [form, setForm] = useState(member || {
     full_name: '', email: '', phone: '',
@@ -81,8 +133,8 @@ function MemberModal({ member, onClose, onSaved }) {
   )
 }
 
-function LinkModal({ transaction, members, year, onClose, onSaved }) {
-  const [memberId, setMemberId] = useState('')
+function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemberId = '' }) {
+  const [memberId, setMemberId] = useState(suggestedMemberId)
   const [month, setMonth] = useState(new Date(transaction.date).getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const selected = members.find(m => m.id === memberId)
@@ -152,16 +204,21 @@ export default function Members() {
   const [members, setMembers] = useState([])
   const [payments, setPayments] = useState([])
   const [unmatched, setUnmatched] = useState([])
+  const [history, setHistory] = useState({})
+  const [matchSuggestions, setMatchSuggestions] = useState({})
+  const [autoMatching, setAutoMatching] = useState(false)
+  const [autoLog, setAutoLog] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editMember, setEditMember] = useState(null)
   const [linkTx, setLinkTx] = useState(null)
+  const [linkSuggestedId, setLinkSuggestedId] = useState('')
 
   useEffect(() => { load() }, [year])
 
   async function load() {
     setLoading(true)
-    const [mRes, pRes, tRes] = await Promise.all([
+    const [mRes, pRes, tRes, hRes] = await Promise.all([
       supabase.from('members').select('*').order('full_name'),
       supabase.from('member_payments').select('*').eq('year', year),
       supabase.from('transactions')
@@ -170,14 +227,83 @@ export default function Members() {
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`)
         .order('date', { ascending: false }),
+      supabase.from('member_payments')
+        .select('member_id, transactions!transaction_id(description)')
+        .not('transaction_id', 'is', null),
     ])
+
+    // Build history map: memberId → [description, ...]
+    const histMap = {}
+    for (const p of hRes.data || []) {
+      const desc = p.transactions?.description
+      if (desc) {
+        if (!histMap[p.member_id]) histMap[p.member_id] = []
+        histMap[p.member_id].push(desc)
+      }
+    }
+    setHistory(histMap)
+
     const allPayments = pRes.data || []
     setMembers(mRes.data || [])
     setPayments(allPayments)
 
     const linkedIds = new Set(allPayments.map(p => p.transaction_id).filter(Boolean))
-    setUnmatched((tRes.data || []).filter(t => !linkedIds.has(t.id) && (t.amount == 300 || t.amount == 3600)))
+    const newUnmatched = (tRes.data || []).filter(t => !linkedIds.has(t.id) && (t.amount == 300 || t.amount == 3600))
+    setUnmatched(newUnmatched)
+
+    // Remove stale suggestions for now-linked transactions
+    setMatchSuggestions(prev => {
+      const cleaned = { ...prev }
+      for (const id of linkedIds) delete cleaned[id]
+      return cleaned
+    })
+
     setLoading(false)
+  }
+
+  async function autoMatch() {
+    if (!activeMembers.length || !unmatched.length) return
+    setAutoMatching(true)
+    setAutoLog([])
+
+    const newSuggestions = {}
+    const autoLinked = []
+
+    for (const tx of unmatched) {
+      const match = getBestMatch(tx, activeMembers, history)
+      if (!match) continue
+
+      if (match.score >= 0.9) {
+        if (!tx.approved) {
+          await supabase.from('transactions').update({
+            approved: true,
+            approved_at: new Date().toISOString(),
+          }).eq('id', tx.id)
+        }
+        const { error } = await supabase.from('member_payments').insert({
+          member_id: match.member.id,
+          year,
+          month: match.member.payment_type === 'yearly' ? null : new Date(tx.date).getMonth() + 1,
+          amount: tx.amount,
+          payment_date: tx.date,
+          transaction_id: tx.id,
+        })
+        if (!error) autoLinked.push({ tx, member: match.member, score: match.score })
+        else newSuggestions[tx.id] = match
+      } else {
+        newSuggestions[tx.id] = match
+      }
+    }
+
+    setMatchSuggestions(newSuggestions)
+    if (autoLinked.length > 0) setAutoLog(autoLinked)
+    await load()
+    setAutoMatching(false)
+  }
+
+  function openLinkModal(tx, suggestedId = '') {
+    setLinkTx(tx)
+    setLinkSuggestedId(suggestedId)
   }
 
   function getPayment(memberId, month) {
@@ -234,7 +360,8 @@ export default function Members() {
           transaction={linkTx}
           members={activeMembers}
           year={year}
-          onClose={() => setLinkTx(null)}
+          suggestedMemberId={linkSuggestedId}
+          onClose={() => { setLinkTx(null); setLinkSuggestedId('') }}
           onSaved={load}
         />
       )}
@@ -302,7 +429,6 @@ export default function Members() {
                     const month = i + 1
                     const paidThisMonth = isPaid(member.id, month)
                     const isPast = year < CURRENT_YEAR || (year === CURRENT_YEAR && month <= CURRENT_MONTH)
-                    const isFuture = year > CURRENT_YEAR || (year === CURRENT_YEAR && month > CURRENT_MONTH)
 
                     let bg = 'transparent'
                     let color = 'var(--border)'
@@ -324,15 +450,10 @@ export default function Members() {
                         <div
                           title={isKasserer ? 'Klikk for å registrere / fjerne betaling' : ''}
                           style={{
-                            borderRadius: 4,
-                            padding: '5px 2px',
-                            fontSize: 11,
-                            fontFamily: 'var(--font-mono)',
-                            background: bg,
-                            color,
+                            borderRadius: 4, padding: '5px 2px', fontSize: 11,
+                            fontFamily: 'var(--font-mono)', background: bg, color,
                             cursor: isKasserer ? 'pointer' : 'default',
-                            userSelect: 'none',
-                            fontWeight: paidThisMonth ? 600 : 400,
+                            userSelect: 'none', fontWeight: paidThisMonth ? 600 : 400,
                           }}
                           onClick={() => isKasserer && toggleMonth(member, month)}
                         >
@@ -368,12 +489,44 @@ export default function Members() {
       {/* Unmatched fee transactions */}
       {unmatched.length > 0 && (
         <div>
-          <div style={{ fontWeight: 500, marginBottom: 10 }}>
-            Ufordelte innbetalinger
-            <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-              {unmatched.length} transaksjoner på 300 eller 3 600 kr som ikke er koblet til et medlem
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <div style={{ fontWeight: 500 }}>
+              Ufordelte innbetalinger
+              <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
+                {unmatched.length} transaksjoner på 300 eller 3 600 kr
+              </span>
+            </div>
+            {isKasserer && (
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={autoMatching}
+                onClick={autoMatch}
+                style={{ marginLeft: 'auto' }}
+              >
+                {autoMatching ? 'Matcher…' : 'Auto-koble alle'}
+              </button>
+            )}
           </div>
+
+          {/* Auto-link result log */}
+          {autoLog.length > 0 && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', background: '#1a3a1a', border: '1px solid var(--green)', borderRadius: 6, fontSize: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>
+                  {autoLog.length} betaling{autoLog.length > 1 ? 'er' : ''} auto-koblet (≥90% sikkerhet)
+                </span>
+                <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}
+                  onClick={() => setAutoLog([])}>✕</button>
+              </div>
+              {autoLog.map(({ tx, member, score }, i) => (
+                <div key={i} style={{ color: 'var(--dim)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 2 }}>
+                  {tx.date} · {tx.description.slice(0, 40)} → <strong style={{ color: 'var(--text)' }}>{member.full_name}</strong>{' '}
+                  <ConfidenceBar score={score} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="card">
             <div className="table-wrap">
               <table>
@@ -383,29 +536,59 @@ export default function Members() {
                     <th>Beskrivelse</th>
                     <th className="text-right">Beløp</th>
                     <th>Status</th>
-                    {isKasserer && <th />}
+                    <th>Forslag</th>
+                    {isKasserer && <th style={{ width: 180 }} />}
                   </tr>
                 </thead>
                 <tbody>
-                  {unmatched.map(t => (
-                    <tr key={t.id}>
-                      <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{t.date}</td>
-                      <td style={{ fontSize: 13 }}>{t.description}</td>
-                      <td className="text-right amount-positive">{fmt(t.amount)}</td>
-                      <td>
-                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                          {t.approved ? 'Godkjent' : 'Venter'}
-                        </span>
-                      </td>
-                      {isKasserer && (
+                  {unmatched.map(t => {
+                    const suggestion = matchSuggestions[t.id]
+                    return (
+                      <tr key={t.id}>
+                        <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{t.date}</td>
+                        <td style={{ fontSize: 13 }}>{t.description}</td>
+                        <td className="text-right amount-positive">{fmt(t.amount)}</td>
                         <td>
-                          <button className="btn btn-sm btn-secondary" onClick={() => setLinkTx(t)}>
-                            {t.approved ? 'Koble til medlem' : 'Godkjenn og koble'}
-                          </button>
+                          <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                            {t.approved ? 'Godkjent' : 'Venter'}
+                          </span>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td>
+                          {suggestion ? (
+                            <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ color: 'var(--dim)' }}>{suggestion.member.full_name}</span>
+                              <ConfidenceBar score={suggestion.score} />
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: 'var(--graphite)' }}>—</span>
+                          )}
+                        </td>
+                        {isKasserer && (
+                          <td>
+                            <div className="flex gap-8">
+                              {suggestion ? (
+                                <>
+                                  <button className="btn btn-sm btn-primary"
+                                    onClick={() => openLinkModal(t, suggestion.member.id)}>
+                                    Bekreft
+                                  </button>
+                                  <button className="btn btn-sm btn-secondary"
+                                    onClick={() => openLinkModal(t, '')}>
+                                    Annet
+                                  </button>
+                                </>
+                              ) : (
+                                <button className="btn btn-sm btn-secondary"
+                                  onClick={() => openLinkModal(t, '')}>
+                                  {t.approved ? 'Koble til' : 'Godkjenn og koble'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
