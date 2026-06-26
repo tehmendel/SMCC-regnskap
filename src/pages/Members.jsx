@@ -70,9 +70,14 @@ function MemberModal({ member, onClose, onSaved }) {
   async function save(e) {
     e.preventDefault()
     setSaving(true)
+    const payload = {
+      ...form,
+      join_date: form.join_date || null,
+      end_date: form.end_date || null,
+    }
     const res = member
-      ? await supabase.from('members').update({ ...form, updated_at: new Date().toISOString() }).eq('id', member.id)
-      : await supabase.from('members').insert(form)
+      ? await supabase.from('members').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', member.id)
+      : await supabase.from('members').insert(payload)
     if (res.error) setError(res.error.message)
     else { onSaved(); onClose() }
     setSaving(false)
