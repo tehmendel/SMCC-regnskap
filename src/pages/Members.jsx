@@ -15,7 +15,11 @@ function normTx(s) {
     .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()
 }
 
-function scoreMatch(desc, member, hist) {
+function txPattern(desc) {
+  return normTx(desc).slice(0, 60)
+}
+
+function scoreMatch(desc, member, hist, boosts = {}) {
   const d = normTx(desc)
   const parts = normTx(member.full_name).split(' ').filter(p => p.length > 1)
   if (!parts.length) return 0
@@ -27,16 +31,32 @@ function scoreMatch(desc, member, hist) {
     const hHits = parts.filter(p => hd.includes(p)).length
     return hHits / parts.length >= 0.5
   })
-  return Math.min(nameScore + (histConfirmed && nameScore > 0.5 ? 0.08 : 0), 1.0)
+  // Learned boost: only applies when there's at least some name match
+  const boost = nameScore > 0 ? (boosts[`${member.id}|${txPattern(desc)}`] || 0) : 0
+  return Math.min(1.0, nameScore + (histConfirmed && nameScore > 0.5 ? 0.08 : 0) + boost)
 }
 
-function getBestMatch(tx, members, hist) {
+function getBestMatch(tx, members, hist, boosts = {}) {
   let best = null, bestScore = 0
   for (const m of members) {
-    const s = scoreMatch(tx.description, m, hist)
+    const s = scoreMatch(tx.description, m, hist, boosts)
     if (s > bestScore) { bestScore = s; best = m }
   }
   return bestScore >= 0.45 ? { member: best, score: bestScore } : null
+}
+
+async function recordBoost(memberId, desc) {
+  const pattern = txPattern(desc)
+  const { data: existing } = await supabase
+    .from('member_tx_boosts').select('boost, confirmation_count')
+    .eq('member_id', memberId).eq('pattern', pattern).single()
+  await supabase.from('member_tx_boosts').upsert({
+    member_id: memberId,
+    pattern,
+    boost: Math.min(1.0, (existing?.boost || 0) + 0.2),
+    confirmation_count: (existing?.confirmation_count || 0) + 1,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'member_id,pattern' })
 }
 
 function ConfidenceBar({ score }) {
@@ -150,6 +170,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
       payment_date: transaction.date,
       transaction_id: transaction.id,
     })
+    await recordBoost(memberId, transaction.description)
     onSaved(); onClose()
   }
 
@@ -198,6 +219,9 @@ export default function Members() {
   const [payments, setPayments] = useState([])
   const [feeRates, setFeeRates] = useState([])
   const [unmatched, setUnmatched] = useState([])
+  const [dismissed, setDismissed] = useState([])
+  const [showDismissed, setShowDismissed] = useState(false)
+  const [boosts, setBoosts] = useState({})
   const [history, setHistory] = useState({})
   const [matchSuggestions, setMatchSuggestions] = useState({})
   const [autoMatching, setAutoMatching] = useState(false)
@@ -220,12 +244,12 @@ export default function Members() {
       .in('name', ['Medlemskontingent', 'Medlemsagift reisekassen'])
     const membershipCatIds = (mCats || []).map(c => c.id)
 
-    const [mRes, pRes, tRes, hRes, rRes] = await Promise.all([
+    const [mRes, pRes, tRes, hRes, rRes, bRes] = await Promise.all([
       supabase.from('members').select('*').order('full_name'),
       supabase.from('member_payments').select('*').eq('year', year),
       // All membership-category transactions, all years — category determines membership, not amount
       supabase.from('transactions')
-        .select('id, date, description, amount, approved, category_id')
+        .select('id, date, description, amount, approved, category_id, membership_dismissed')
         .eq('type', 'inntekt')
         .in('category_id', membershipCatIds.length ? membershipCatIds : ['00000000-0000-0000-0000-000000000000'])
         .order('date', { ascending: false }),
@@ -235,10 +259,17 @@ export default function Members() {
       supabase.from('fee_rates')
         .select('*').eq('fee_type', 'membership')
         .order('effective_from', { ascending: false }),
+      supabase.from('member_tx_boosts').select('member_id, pattern, boost'),
     ])
 
     const rates = rRes.data || []
     setFeeRates(rates)
+
+    const boostsMap = {}
+    for (const b of bRes.data || []) {
+      boostsMap[`${b.member_id}|${b.pattern}`] = b.boost
+    }
+    setBoosts(boostsMap)
 
     const histMap = {}
     for (const p of hRes.data || []) {
@@ -259,11 +290,13 @@ export default function Members() {
     // Current-year linked IDs (for setMatchSuggestions cleanup)
     const linkedIds = new Set(allPayments.map(p => p.transaction_id).filter(Boolean))
 
-    setUnmatched((tRes.data || []).filter(t => !allLinkedIds.has(t.id)))
+    const allTx = tRes.data || []
+    setUnmatched(allTx.filter(t => !allLinkedIds.has(t.id) && !t.membership_dismissed))
+    setDismissed(allTx.filter(t => !allLinkedIds.has(t.id) && t.membership_dismissed))
 
     setMatchSuggestions(prev => {
       const cleaned = { ...prev }
-      for (const id of linkedIds) delete cleaned[id]
+      for (const id of allLinkedIds) delete cleaned[id]
       return cleaned
     })
     setLoading(false)
@@ -283,7 +316,7 @@ export default function Members() {
     const autoLinked = []
 
     for (const tx of unmatched) {
-      const match = getBestMatch(tx, activeMembers, history)
+      const match = getBestMatch(tx, activeMembers, history, boosts)
       if (!match) continue
       if (match.score >= 0.9) {
         if (!tx.approved) {
@@ -303,8 +336,12 @@ export default function Members() {
           payment_date: txDate,
           transaction_id: tx.id,
         })
-        if (!error) autoLinked.push({ tx, member: match.member, score: match.score })
-        else newSuggestions[tx.id] = match
+        if (!error) {
+          autoLinked.push({ tx, member: match.member, score: match.score })
+          await recordBoost(match.member.id, tx.description)
+        } else {
+          newSuggestions[tx.id] = match
+        }
       } else {
         newSuggestions[tx.id] = match
       }
@@ -313,6 +350,19 @@ export default function Members() {
     if (autoLinked.length > 0) setAutoLog(autoLinked)
     await load()
     setAutoMatching(false)
+  }
+
+  async function dismissTx(id) {
+    await supabase.from('transactions').update({ membership_dismissed: true }).eq('id', id)
+    setUnmatched(prev => prev.filter(t => t.id !== id))
+    setDismissed(prev => [...prev, unmatched.find(t => t.id === id)].filter(Boolean))
+  }
+
+  async function restoreTx(id) {
+    await supabase.from('transactions').update({ membership_dismissed: false }).eq('id', id)
+    const tx = dismissed.find(t => t.id === id)
+    setDismissed(prev => prev.filter(t => t.id !== id))
+    if (tx) setUnmatched(prev => [tx, ...prev])
   }
 
   function getPayment(memberId, month) {
@@ -620,7 +670,7 @@ export default function Members() {
                           )}
                         </td>
                         {isKasserer && (
-                          <td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
                             <div className="flex gap-8">
                               {suggestion ? (
                                 <>
@@ -635,6 +685,9 @@ export default function Members() {
                                   {t.approved ? 'Koble til' : 'Godkjenn og koble'}
                                 </button>
                               )}
+                              <button className="btn btn-sm" title="Fjern fra listen (ikke slett)"
+                                style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', padding: '2px 7px' }}
+                                onClick={() => dismissTx(t.id)}>✕</button>
                             </div>
                           </td>
                         )}
@@ -645,6 +698,52 @@ export default function Members() {
               </table>
             </div>
           </div>
+
+          {dismissed.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowDismissed(v => !v)}
+                style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {showDismissed ? '▴ Skjul' : '▾ Vis'} {dismissed.length} fjernede innbetalinger
+              </button>
+
+              {showDismissed && (
+                <div className="card" style={{ marginTop: 8 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Dato</th><th>Beskrivelse</th>
+                        <th className="text-right">Beløp</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dismissed.map(t => (
+                        <tr key={t.id} style={{ opacity: 0.65 }}>
+                          <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                            {t.date}
+                            {t.date.slice(0, 4) !== String(year) && (
+                              <span style={{ marginLeft: 6, background: 'var(--graphite)', color: 'var(--yellow)', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                                {t.date.slice(0, 4)}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 13 }}>{t.description}</td>
+                          <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                          <td>
+                            <button className="btn btn-sm btn-secondary" onClick={() => restoreTx(t.id)}>
+                              ↩ Gjenopprett
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
