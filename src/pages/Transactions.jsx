@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { useColumnPrefs } from '../hooks/useColumnPrefs'
+import { ColumnPicker } from '../components/ColumnPicker'
 
 function fmt(amount) {
   return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
 }
+
+const COLUMNS = [
+  { key: 'date',        label: 'Dato' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'arrangement', label: 'Arrangement' },
+  { key: 'category',    label: 'Kategori' },
+  { key: 'type',        label: 'Type' },
+  { key: 'amount',      label: 'Beløp' },
+  { key: 'status',      label: 'Status' },
+  { key: 'notes',       label: 'Notater',    default: false },
+  { key: 'imported',    label: 'Bankimport', default: false },
+  { key: 'actions',     label: 'Handlinger' },
+]
 
 function Modal({ onClose, onSaved, editItem }) {
   const { profile } = useAuth()
@@ -95,7 +110,6 @@ function Modal({ onClose, onSaved, editItem }) {
               ))}
             </select>
           </div>
-
           {isArrangementCategory && (
             <div className="form-group">
               <label className="form-label">Arrangement</label>
@@ -110,7 +124,6 @@ function Modal({ onClose, onSaved, editItem }) {
               </select>
             </div>
           )}
-
           <div className="form-group">
             <label className="form-label">Notater</label>
             <textarea className="form-textarea" value={form.notes}
@@ -133,6 +146,7 @@ function Modal({ onClose, onSaved, editItem }) {
 
 export default function Transactions() {
   const { isKasserer, isAdmin, profile } = useAuth()
+  const prefs = useColumnPrefs('transactions', COLUMNS)
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
@@ -214,6 +228,8 @@ export default function Transactions() {
     return true
   })
 
+  const { isVisible } = prefs
+
   if (loading) return <div className="text-muted">Laster…</div>
 
   return (
@@ -278,15 +294,18 @@ export default function Transactions() {
               Nullstill filtre
             </button>
           )}
-          {isKasserer && (() => {
-            const pendingCount = filtered.filter(t => !t.approved).length
-            return pendingCount > 0 ? (
-              <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }}
-                disabled={bulkApproving} onClick={bulkApprove}>
-                {bulkApproving ? 'Godkjenner…' : `Godkjenn alle (${pendingCount})`}
-              </button>
-            ) : null
-          })()}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isKasserer && (() => {
+              const pendingCount = filtered.filter(t => !t.approved).length
+              return pendingCount > 0 ? (
+                <button className="btn btn-sm btn-primary"
+                  disabled={bulkApproving} onClick={bulkApprove}>
+                  {bulkApproving ? 'Godkjenner…' : `Godkjenn alle (${pendingCount})`}
+                </button>
+              ) : null
+            })()}
+            <ColumnPicker prefs={prefs} />
+          </div>
         </div>
       </div>
 
@@ -303,40 +322,66 @@ export default function Transactions() {
             <table>
               <thead>
                 <tr>
-                  <th>Dato</th>
-                  <th>Beskrivelse</th>
-                  <th>Kategori</th>
-                  <th>Type</th>
-                  <th className="text-right">Beløp</th>
-                  <th>Status</th>
-                  {isKasserer && <th>Handlinger</th>}
+                  {isVisible('date')        && <th>Dato</th>}
+                  {isVisible('description') && <th>Beskrivelse</th>}
+                  {isVisible('arrangement') && <th>Arrangement</th>}
+                  {isVisible('category')    && <th>Kategori</th>}
+                  {isVisible('type')        && <th>Type</th>}
+                  {isVisible('amount')      && <th className="text-right">Beløp</th>}
+                  {isVisible('status')      && <th>Status</th>}
+                  {isVisible('notes')       && <th>Notater</th>}
+                  {isVisible('imported')    && <th>Import</th>}
+                  {isKasserer && isVisible('actions') && <th>Handlinger</th>}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(t => (
                   <tr key={t.id}>
-                    <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
-                    <td>
-                      <div>{t.description}</div>
-                      {t.arrangements?.name && (
-                        <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
-                          ⬡ {t.arrangements.name}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                    <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                    <td className="text-right">
-                      <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                        {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                        {t.approved ? 'Godkjent' : 'Venter'}
-                      </span>
-                    </td>
-                    {isKasserer && (
+                    {isVisible('date') && (
+                      <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
+                    )}
+                    {isVisible('description') && (
+                      <td>{t.description}</td>
+                    )}
+                    {isVisible('arrangement') && (
+                      <td style={{ fontSize: 11, color: 'var(--accent)' }}>
+                        {t.arrangements?.name || '—'}
+                      </td>
+                    )}
+                    {isVisible('category') && (
+                      <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                    )}
+                    {isVisible('type') && (
+                      <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                    )}
+                    {isVisible('amount') && (
+                      <td className="text-right">
+                        <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+                          {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+                        </span>
+                      </td>
+                    )}
+                    {isVisible('status') && (
+                      <td>
+                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                          {t.approved ? 'Godkjent' : 'Venter'}
+                        </span>
+                      </td>
+                    )}
+                    {isVisible('notes') && (
+                      <td style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.notes || '—'}
+                      </td>
+                    )}
+                    {isVisible('imported') && (
+                      <td>
+                        {t.bank_import_id
+                          ? <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>
+                          : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                        }
+                      </td>
+                    )}
+                    {isKasserer && isVisible('actions') && (
                       <td>
                         <div className="flex gap-8">
                           <button className="btn btn-sm btn-secondary"

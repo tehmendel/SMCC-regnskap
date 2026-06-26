@@ -3,10 +3,42 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, fmtDate } from '../../lib/format'
+import { useColumnPrefs } from '../../hooks/useColumnPrefs'
+import { ColumnPicker } from '../../components/ColumnPicker'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
+
+const EXP_COLS = [
+  { key: 'date',        label: 'Dato' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'vendor',      label: 'Leverandør' },
+  { key: 'department',  label: 'Avdeling' },
+  { key: 'paid_by',     label: 'Hvem la ut' },
+  { key: 'method',      label: 'Betalingsmetode', default: false },
+  { key: 'amount',      label: 'Beløp' },
+  { key: 'reimbursed',  label: 'Status' },
+  { key: 'notes',       label: 'Kommentar',       default: false },
+  { key: 'actions',     label: 'Handlinger' },
+]
+
+const REV_COLS = [
+  { key: 'date',        label: 'Dato' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'source',      label: 'Kilde' },
+  { key: 'department',  label: 'Avdeling' },
+  { key: 'amount',      label: 'Beløp' },
+]
+
+const LINKED_TX_COLS = [
+  { key: 'date',        label: 'Dato' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'category',    label: 'Kategori' },
+  { key: 'type',        label: 'Type' },
+  { key: 'amount',      label: 'Beløp' },
+  { key: 'status',      label: 'Status' },
+]
 
 const COLORS = ['#E85D26','#22C55E','#EAB308','#3B82F6','#A855F7','#EC4899']
 const PAYMENT_METHODS = ['bank','smcc_kort','bonger','kontant','faktura']
@@ -228,6 +260,9 @@ function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) 
 export default function ArrangementDetail() {
   const { id } = useParams()
   const { isKasserer, isAdmin } = useAuth()
+  const expPrefs    = useColumnPrefs('arr_expenses', EXP_COLS)
+  const revPrefs    = useColumnPrefs('arr_revenues', REV_COLS)
+  const linkedPrefs = useColumnPrefs('arr_linked_tx', LINKED_TX_COLS)
   const [arrangement, setArrangement] = useState(null)
   const [departments, setDepartments] = useState([])
   const [expenses, setExpenses] = useState([])
@@ -554,37 +589,64 @@ export default function ArrangementDetail() {
                 <button key={d.id} className={`btn btn-sm ${filterDept === d.name ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setFilterDept(d.name)}>{d.name}</button>
               ))}
+              <ColumnPicker prefs={expPrefs} />
             </div>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Dato</th><th>Beskrivelse</th><th>Leverandør</th><th>Avdeling</th>
-                  <th>Hvem</th><th>Metode</th><th className="text-right">Beløp</th>
-                  <th>Status</th>{isKasserer && <th />}
+                  {expPrefs.isVisible('date')        && <th>Dato</th>}
+                  {expPrefs.isVisible('description') && <th>Beskrivelse</th>}
+                  {expPrefs.isVisible('vendor')      && <th>Leverandør</th>}
+                  {expPrefs.isVisible('department')  && <th>Avdeling</th>}
+                  {expPrefs.isVisible('paid_by')     && <th>Hvem</th>}
+                  {expPrefs.isVisible('method')      && <th>Metode</th>}
+                  {expPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
+                  {expPrefs.isVisible('reimbursed')  && <th>Status</th>}
+                  {expPrefs.isVisible('notes')       && <th>Kommentar</th>}
+                  {isKasserer && expPrefs.isVisible('actions') && <th />}
                 </tr>
               </thead>
               <tbody>
                 {filteredExpenses.map(e => (
                   <tr key={e.id}>
-                    <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
-                    <td>
-                      {e.description}
-                      {e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}
-                      {e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
-                    </td>
-                    <td style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
-                    <td><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
-                    <td style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
-                    <td style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
-                    <td className="text-right amount-negative">{fmt(e.amount)}</td>
-                    <td>
-                      <span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>
-                        {e.reimbursed ? 'Utbetalt' : 'Venter'}
-                      </span>
-                    </td>
-                    {isKasserer && (
+                    {expPrefs.isVisible('date') && (
+                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
+                    )}
+                    {expPrefs.isVisible('description') && (
+                      <td>
+                        {e.description}
+                        {e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}
+                        {e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
+                      </td>
+                    )}
+                    {expPrefs.isVisible('vendor') && (
+                      <td style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
+                    )}
+                    {expPrefs.isVisible('department') && (
+                      <td><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
+                    )}
+                    {expPrefs.isVisible('paid_by') && (
+                      <td style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
+                    )}
+                    {expPrefs.isVisible('method') && (
+                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
+                    )}
+                    {expPrefs.isVisible('amount') && (
+                      <td className="text-right amount-negative">{fmt(e.amount)}</td>
+                    )}
+                    {expPrefs.isVisible('reimbursed') && (
+                      <td>
+                        <span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>
+                          {e.reimbursed ? 'Utbetalt' : 'Venter'}
+                        </span>
+                      </td>
+                    )}
+                    {expPrefs.isVisible('notes') && (
+                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{e.notes || '—'}</td>
+                    )}
+                    {isKasserer && expPrefs.isVisible('actions') && (
                       <td>
                         <div className="flex gap-8">
                           {!e.transaction_id && (
@@ -601,11 +663,12 @@ export default function ArrangementDetail() {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={6} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>TOTAL</td>
-                  <td className="text-right amount-negative" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                    {fmt(filteredExpenses.reduce((s, e) => s + Number(e.amount), 0))}
+                  <td colSpan={99} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                    TOTAL
+                    <span style={{ marginLeft: 12, fontWeight: 600, color: 'var(--red)' }}>
+                      {fmt(filteredExpenses.reduce((s, e) => s + Number(e.amount), 0))}
+                    </span>
                   </td>
-                  <td colSpan={2} />
                 </tr>
               </tfoot>
             </table>
@@ -616,7 +679,10 @@ export default function ArrangementDetail() {
       {/* INNTEKTER */}
       {activeTab === 'inntekter' && (
         <div className="card">
-          <div className="card-title">Inntekter</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 0 }}>Inntekter ({revenues.length})</div>
+            <ColumnPicker prefs={revPrefs} />
+          </div>
           {revenues.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">💰</div>
@@ -625,18 +691,36 @@ export default function ArrangementDetail() {
           ) : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Dato</th><th>Beskrivelse</th><th>Kilde</th><th>Avdeling</th><th className="text-right">Beløp</th></tr></thead>
+                <thead>
+                  <tr>
+                    {revPrefs.isVisible('date')        && <th>Dato</th>}
+                    {revPrefs.isVisible('description') && <th>Beskrivelse</th>}
+                    {revPrefs.isVisible('source')      && <th>Kilde</th>}
+                    {revPrefs.isVisible('department')  && <th>Avdeling</th>}
+                    {revPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
+                  </tr>
+                </thead>
                 <tbody>
                   {revenues.map(r => (
                     <tr key={r.id}>
-                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
-                      <td>
-                        {r.description}
-                        {r.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
-                      </td>
-                      <td><span className="badge badge-inntekt">{r.source}</span></td>
-                      <td style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
-                      <td className="text-right amount-positive">{fmt(r.amount)}</td>
+                      {revPrefs.isVisible('date') && (
+                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
+                      )}
+                      {revPrefs.isVisible('description') && (
+                        <td>
+                          {r.description}
+                          {r.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
+                        </td>
+                      )}
+                      {revPrefs.isVisible('source') && (
+                        <td><span className="badge badge-inntekt">{r.source}</span></td>
+                      )}
+                      {revPrefs.isVisible('department') && (
+                        <td style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
+                      )}
+                      {revPrefs.isVisible('amount') && (
+                        <td className="text-right amount-positive">{fmt(r.amount)}</td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -681,7 +765,10 @@ export default function ArrangementDetail() {
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Banktransaksjoner ({linkedTx.length})</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Godkjente transaksjoner synkes automatisk til Utgifter/Inntekter</div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Godkjente transaksjoner synkes automatisk til Utgifter/Inntekter</span>
+              <ColumnPicker prefs={linkedPrefs} />
+            </div>
           </div>
           {linkedTx.length === 0 ? (
             <div className="empty-state">
@@ -694,38 +781,54 @@ export default function ArrangementDetail() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Dato</th><th>Beskrivelse</th><th>Kategori</th><th>Type</th><th className="text-right">Beløp</th><th>Status</th></tr>
+                  <tr>
+                    {linkedPrefs.isVisible('date')        && <th>Dato</th>}
+                    {linkedPrefs.isVisible('description') && <th>Beskrivelse</th>}
+                    {linkedPrefs.isVisible('category')    && <th>Kategori</th>}
+                    {linkedPrefs.isVisible('type')        && <th>Type</th>}
+                    {linkedPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
+                    {linkedPrefs.isVisible('status')      && <th>Status</th>}
+                  </tr>
                 </thead>
                 <tbody>
                   {linkedTx.map(t => (
                     <tr key={t.id}>
-                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
-                      <td>{t.description}</td>
-                      <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                      <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                      <td className="text-right">
-                        <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                          {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                          {t.approved ? 'Synket ✓' : 'Venter godkjenning'}
-                        </span>
-                      </td>
+                      {linkedPrefs.isVisible('date') && (
+                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
+                      )}
+                      {linkedPrefs.isVisible('description') && <td>{t.description}</td>}
+                      {linkedPrefs.isVisible('category') && (
+                        <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                      )}
+                      {linkedPrefs.isVisible('type') && (
+                        <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                      )}
+                      {linkedPrefs.isVisible('amount') && (
+                        <td className="text-right">
+                          <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+                            {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+                          </span>
+                        </td>
+                      )}
+                      {linkedPrefs.isVisible('status') && (
+                        <td>
+                          <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                            {t.approved ? 'Synket ✓' : 'Venter godkjenning'}
+                          </span>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>NETTO</td>
-                    <td className="text-right" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                    <td colSpan={99} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                      NETTO{' '}
                       {(() => {
                         const net = linkedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
-                        return <span className={net >= 0 ? 'amount-positive' : 'amount-negative'}>{fmt(net)}</span>
+                        return <span className={net >= 0 ? 'amount-positive' : 'amount-negative'} style={{ fontWeight: 600, marginLeft: 8 }}>{fmt(net)}</span>
                       })()}
                     </td>
-                    <td />
                   </tr>
                 </tfoot>
               </table>

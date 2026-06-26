@@ -2,13 +2,25 @@ import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmtDate } from '../lib/format'
-
-const CSV_SPEC = `Påkrevd: full_name
-Valgfritt: email, phone, payment_type (monthly|yearly), join_date (YYYY-MM-DD), end_date (YYYY-MM-DD), active (true|false), in_reisekasse (true|false), notes`
+import { useColumnPrefs } from '../hooks/useColumnPrefs'
+import { ColumnPicker } from '../components/ColumnPicker'
 
 const CSV_TEMPLATE = `full_name,email,phone,payment_type,join_date,end_date,active,in_reisekasse,notes
 Ola Nordmann,ola@example.com,99999999,monthly,2024-01-01,,true,false,
 Kari Nordmann,kari@example.com,,yearly,2023-06-15,,true,true,Æresmedlem`
+
+const COLUMNS = [
+  { key: 'full_name',     label: 'Navn' },
+  { key: 'email',         label: 'E-post' },
+  { key: 'phone',         label: 'Telefon',        default: false },
+  { key: 'payment_type',  label: 'Betalingsform' },
+  { key: 'join_date',     label: 'Innmeldt' },
+  { key: 'end_date',      label: 'Utmeldt' },
+  { key: 'in_reisekasse', label: 'Reisekassen' },
+  { key: 'active',        label: 'Status' },
+  { key: 'notes',         label: 'Notater',        default: false },
+  { key: 'actions',       label: 'Handlinger' },
+]
 
 function parseBool(v, def = false) {
   if (v === undefined || v === '') return def
@@ -97,12 +109,6 @@ function MemberModal({ member, onClose, onSaved }) {
               <label className="form-label">Utmeldingsdato <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(valgfritt)</span></label>
               <input className="form-input" type="date" value={form.end_date || ''}
                 onChange={e => setForm(f => ({ ...f, end_date: e.target.value || null }))} />
-              {form.end_date && (
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  Vises i statistikk t.o.m. {new Date(form.end_date).getFullYear()},
-                  ikke fra {new Date(form.end_date).getFullYear() + 1}.
-                </div>
-              )}
             </div>
             <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 22 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
@@ -136,6 +142,7 @@ function MemberModal({ member, onClose, onSaved }) {
 
 export default function MemberRegistry() {
   const { isKasserer, isAdmin } = useAuth()
+  const prefs = useColumnPrefs('member_registry', COLUMNS)
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -245,6 +252,8 @@ export default function MemberRegistry() {
     return true
   })
 
+  const { isVisible } = prefs
+
   if (loading) return <div className="text-muted">Laster…</div>
 
   return (
@@ -279,7 +288,6 @@ export default function MemberRegistry() {
         </div>
       </div>
 
-      {/* CSV Import panel */}
       {showImport && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-title">CSV-import</div>
@@ -295,7 +303,6 @@ export default function MemberRegistry() {
             <strong style={{ color: 'var(--dim)' }}>Duplikater:</strong>{' '}
             <span style={{ color: 'var(--muted)' }}>Eksisterende medlemmer (samme full_name) oppdateres — nye opprettes</span>
           </div>
-
           <div className="flex gap-8" style={{ marginBottom: 10 }}>
             <button className="btn btn-sm btn-secondary" onClick={() => { setCsvText(CSV_TEMPLATE); setCsvPreview(null) }}>
               Last inn mal
@@ -311,7 +318,6 @@ export default function MemberRegistry() {
                 r.readAsText(f, 'UTF-8')
               }} />
           </div>
-
           <textarea
             className="form-textarea"
             style={{ fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 100 }}
@@ -319,7 +325,6 @@ export default function MemberRegistry() {
             value={csvText}
             onChange={e => { setCsvText(e.target.value); setCsvPreview(null) }}
           />
-
           <div className="flex gap-8" style={{ marginTop: 10 }}>
             <button className="btn btn-secondary" disabled={!csvText.trim()} onClick={parsePeek}>
               Forhåndsvis
@@ -330,7 +335,6 @@ export default function MemberRegistry() {
               </button>
             )}
           </div>
-
           {importResult && (
             <div style={{ marginTop: 12, padding: '10px 14px', background: '#1a3a1a', border: '1px solid var(--green)', borderRadius: 6, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
               <span>
@@ -343,7 +347,6 @@ export default function MemberRegistry() {
                 onClick={() => setImportResult(null)}>✕</button>
             </div>
           )}
-
           {csvPreview && (
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
@@ -383,7 +386,6 @@ export default function MemberRegistry() {
         </div>
       )}
 
-      {/* Filters */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input className="form-input" style={{ maxWidth: 280 }} placeholder="Søk navn…"
           value={search} onChange={e => setSearch(e.target.value)} />
@@ -398,7 +400,8 @@ export default function MemberRegistry() {
             {f.label}
           </button>
         ))}
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
+        <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
       </div>
 
       <div className="card">
@@ -406,55 +409,77 @@ export default function MemberRegistry() {
           <table>
             <thead>
               <tr>
-                <th>Navn</th>
-                <th>E-post</th>
-                <th>Telefon</th>
-                <th>Betalingsform</th>
-                <th>Innmeldt</th>
-                <th>Utmeldt</th>
-                <th>Reisekassen</th>
-                <th>Status</th>
-                {isKasserer && <th />}
+                {isVisible('full_name')     && <th>Navn</th>}
+                {isVisible('email')         && <th>E-post</th>}
+                {isVisible('phone')         && <th>Telefon</th>}
+                {isVisible('payment_type')  && <th>Betalingsform</th>}
+                {isVisible('join_date')     && <th>Innmeldt</th>}
+                {isVisible('end_date')      && <th>Utmeldt</th>}
+                {isVisible('in_reisekasse') && <th>Reisekassen</th>}
+                {isVisible('active')        && <th>Status</th>}
+                {isVisible('notes')         && <th>Notater</th>}
+                {isKasserer && isVisible('actions') && <th />}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Ingen treff</td></tr>
+                <tr><td colSpan={99} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Ingen treff</td></tr>
               ) : filtered.map(m => (
                 <tr key={m.id}>
-                  <td style={{ fontWeight: 500 }}>{m.full_name}</td>
-                  <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.email || '—'}</td>
-                  <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.phone || '—'}</td>
-                  <td>
-                    <span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)', fontSize: 10 }}>
-                      {m.payment_type === 'yearly' ? 'Årlig' : 'Månedlig'}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(m.join_date)}</td>
-                  <td style={{ fontSize: 12, color: m.end_date ? 'var(--red)' : 'var(--muted)' }}>
-                    {m.end_date ? fmtDate(m.end_date) : '—'}
-                  </td>
-                  <td>
-                    {isKasserer ? (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={m.in_reisekasse || false}
-                          onChange={() => toggleReisekasse(m)} />
-                        <span style={{ fontSize: 11, color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)' }}>
-                          {m.in_reisekasse ? 'Ja' : 'Nei'}
-                        </span>
-                      </label>
-                    ) : (
-                      <span style={{ color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)', fontSize: 12 }}>
-                        {m.in_reisekasse ? 'Ja' : '—'}
+                  {isVisible('full_name') && (
+                    <td style={{ fontWeight: 500 }}>{m.full_name}</td>
+                  )}
+                  {isVisible('email') && (
+                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.email || '—'}</td>
+                  )}
+                  {isVisible('phone') && (
+                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{m.phone || '—'}</td>
+                  )}
+                  {isVisible('payment_type') && (
+                    <td>
+                      <span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)', fontSize: 10 }}>
+                        {m.payment_type === 'yearly' ? 'Årlig' : 'Månedlig'}
                       </span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`badge ${m.active ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
-                      {m.active ? 'Aktiv' : 'Inaktiv'}
-                    </span>
-                  </td>
-                  {isKasserer && (
+                    </td>
+                  )}
+                  {isVisible('join_date') && (
+                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(m.join_date)}</td>
+                  )}
+                  {isVisible('end_date') && (
+                    <td style={{ fontSize: 12, color: m.end_date ? 'var(--red)' : 'var(--muted)' }}>
+                      {m.end_date ? fmtDate(m.end_date) : '—'}
+                    </td>
+                  )}
+                  {isVisible('in_reisekasse') && (
+                    <td>
+                      {isKasserer ? (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={m.in_reisekasse || false}
+                            onChange={() => toggleReisekasse(m)} />
+                          <span style={{ fontSize: 11, color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)' }}>
+                            {m.in_reisekasse ? 'Ja' : 'Nei'}
+                          </span>
+                        </label>
+                      ) : (
+                        <span style={{ color: m.in_reisekasse ? 'var(--green)' : 'var(--muted)', fontSize: 12 }}>
+                          {m.in_reisekasse ? 'Ja' : '—'}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  {isVisible('active') && (
+                    <td>
+                      <span className={`badge ${m.active ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
+                        {m.active ? 'Aktiv' : 'Inaktiv'}
+                      </span>
+                    </td>
+                  )}
+                  {isVisible('notes') && (
+                    <td style={{ color: 'var(--muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.notes || '—'}
+                    </td>
+                  )}
+                  {isKasserer && isVisible('actions') && (
                     <td>
                       <div className="flex gap-8">
                         <button className="btn btn-sm btn-secondary"

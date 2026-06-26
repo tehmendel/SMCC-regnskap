@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { useColumnPrefs } from '../hooks/useColumnPrefs'
+import { ColumnPicker } from '../components/ColumnPicker'
+
+const COLUMNS = [
+  { key: 'name',        label: 'Navn' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'active',      label: 'Status' },
+  { key: 'actions',     label: 'Handlinger' },
+]
 
 function CategoryModal({ category, onClose, onSaved }) {
   const { profile } = useAuth()
@@ -18,7 +27,7 @@ function CategoryModal({ category, onClose, onSaved }) {
     setSaving(true)
     setError('')
     const res = category
-      ? await supabase.from('categories').update({ ...form, updated_at: new Date().toISOString() }).eq('id', category.id)
+      ? await supabase.from('categories').update({ ...form }).eq('id', category.id)
       : await supabase.from('categories').insert({ ...form, created_by: profile.id })
     if (res.error) setError(res.error.message)
     else { onSaved(); onClose() }
@@ -72,6 +81,7 @@ function CategoryModal({ category, onClose, onSaved }) {
 
 export default function Categories() {
   const { isAdmin } = useAuth()
+  const prefs = useColumnPrefs('categories', COLUMNS)
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -92,7 +102,6 @@ export default function Categories() {
       .from('transactions')
       .select('id', { count: 'exact', head: true })
       .eq('category_id', cat.id)
-
     setDeleting(null)
 
     if (count > 0) {
@@ -103,7 +112,6 @@ export default function Categories() {
     } else {
       if (!confirm(`Slett kategorien «${cat.name}»?`)) return
     }
-
     await supabase.from('categories').delete().eq('id', cat.id)
     load()
   }
@@ -111,6 +119,8 @@ export default function Categories() {
   const byType = categories.reduce((acc, c) => {
     const k = c.type; (acc[k] = acc[k] || []).push(c); return acc
   }, {})
+
+  const { isVisible } = prefs
 
   if (loading) return <div className="text-muted">Laster…</div>
 
@@ -132,11 +142,14 @@ export default function Categories() {
             {categories.filter(c => !c.active).length} inaktive
           </div>
         </div>
-        {isAdmin && (
-          <button className="btn btn-primary" onClick={() => { setEditCat(null); setShowModal(true) }}>
-            + Ny kategori
-          </button>
-        )}
+        <div className="flex gap-8">
+          <ColumnPicker prefs={prefs} />
+          {isAdmin && (
+            <button className="btn btn-primary" onClick={() => { setEditCat(null); setShowModal(true) }}>
+              + Ny kategori
+            </button>
+          )}
+        </div>
       </div>
 
       {['inntekt', 'utgift'].map(type => {
@@ -154,30 +167,39 @@ export default function Categories() {
               <table>
                 <thead>
                   <tr>
-                    <th>Navn</th>
-                    <th>Beskrivelse</th>
-                    <th>Status</th>
-                    {isAdmin && <th style={{ width: 160 }} />}
+                    {isVisible('name')        && <th>Navn</th>}
+                    {isVisible('description') && <th>Beskrivelse</th>}
+                    {isVisible('active')      && <th>Status</th>}
+                    {isAdmin && isVisible('actions') && <th style={{ width: 180 }} />}
                   </tr>
                 </thead>
                 <tbody>
                   {list.map(c => (
                     <tr key={c.id} style={{ opacity: c.active ? 1 : 0.55 }}>
-                      <td style={{ fontWeight: 500 }}>{c.name}</td>
-                      <td style={{ color: 'var(--muted)', fontSize: 13 }}>{c.description || '—'}</td>
-                      <td>
-                        <span className={`badge ${c.active ? 'badge-approved' : 'badge-pending'}`}>
-                          {c.active ? 'Aktiv' : 'Inaktiv'}
-                        </span>
-                      </td>
-                      {isAdmin && (
+                      {isVisible('name') && (
+                        <td style={{ fontWeight: 500 }}>{c.name}</td>
+                      )}
+                      {isVisible('description') && (
+                        <td style={{ color: 'var(--muted)', fontSize: 13 }}>{c.description || '—'}</td>
+                      )}
+                      {isVisible('active') && (
                         <td>
+                          <span className={`badge ${c.active ? 'badge-approved' : 'badge-pending'}`}>
+                            {c.active ? 'Aktiv' : 'Inaktiv'}
+                          </span>
+                        </td>
+                      )}
+                      {isAdmin && isVisible('actions') && (
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <div className="flex gap-8">
-                            <button className="btn btn-sm btn-secondary"
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              style={{ minWidth: 90 }}
                               onClick={() => { setEditCat(c); setShowModal(true) }}>
                               ✎ Rediger
                             </button>
-                            <button className="btn btn-sm btn-danger"
+                            <button
+                              className="btn btn-sm btn-danger"
                               disabled={deleting === c.id}
                               onClick={() => deleteCategory(c)}>
                               {deleting === c.id ? '…' : 'Slett'}

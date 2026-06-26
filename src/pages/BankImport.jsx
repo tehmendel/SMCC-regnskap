@@ -2,6 +2,24 @@ import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
+import { useColumnPrefs } from '../hooks/useColumnPrefs'
+import { ColumnPicker } from '../components/ColumnPicker'
+
+const HISTORY_COLS = [
+  { key: 'filename',    label: 'Fil' },
+  { key: 'imported_at', label: 'Importert' },
+  { key: 'imported_by', label: 'Av' },
+  { key: 'file_size',   label: 'Størrelse' },
+  { key: 'tx_count',    label: 'Transaksjoner' },
+]
+
+const DETAIL_COLS = [
+  { key: 'date',        label: 'Dato' },
+  { key: 'description', label: 'Beskrivelse' },
+  { key: 'category',    label: 'Kategori' },
+  { key: 'amount',      label: 'Beløp' },
+  { key: 'status',      label: 'Status' },
+]
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -31,6 +49,8 @@ function fmtRemaining(elapsed, percent) {
 
 export default function BankImport() {
   const { profile } = useAuth()
+  const histPrefs   = useColumnPrefs('import_history', HISTORY_COLS)
+  const detailPrefs = useColumnPrefs('import_history_tx', DETAIL_COLS)
   const [activeTab, setActiveTab] = useState('import')
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -334,15 +354,18 @@ export default function BankImport() {
             </div>
           ) : (
             <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px 4px' }}>
+                <ColumnPicker prefs={histPrefs} />
+              </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
                     <th style={{ width: 28 }} />
-                    <th>Fil</th>
-                    <th>Importert</th>
-                    <th>Av</th>
-                    <th className="text-right">Størrelse</th>
-                    <th className="text-right">Transaksjoner</th>
+                    {histPrefs.isVisible('filename')    && <th>Fil</th>}
+                    {histPrefs.isVisible('imported_at') && <th>Importert</th>}
+                    {histPrefs.isVisible('imported_by') && <th>Av</th>}
+                    {histPrefs.isVisible('file_size')   && <th className="text-right">Størrelse</th>}
+                    {histPrefs.isVisible('tx_count')    && <th className="text-right">Transaksjoner</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -359,23 +382,29 @@ export default function BankImport() {
                           <td style={{ padding: '10px 12px', color: 'var(--muted)', fontSize: 13, userSelect: 'none' }}>
                             {isOpen ? '▾' : '▸'}
                           </td>
-                          <td style={{ padding: '10px 12px', fontWeight: 500 }}>{imp.filename}</td>
-                          <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>
-                            {dateStr} {timeStr}
-                          </td>
-                          <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>
-                            {imp.profiles?.full_name || '—'}
-                          </td>
-                          <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
-                            {fmtSize(imp.file_size || 0)}
-                          </td>
-                          <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>
-                            {imp.transaction_count}
-                          </td>
+                          {histPrefs.isVisible('filename') && (
+                            <td style={{ padding: '10px 12px', fontWeight: 500 }}>{imp.filename}</td>
+                          )}
+                          {histPrefs.isVisible('imported_at') && (
+                            <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{dateStr} {timeStr}</td>
+                          )}
+                          {histPrefs.isVisible('imported_by') && (
+                            <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{imp.profiles?.full_name || '—'}</td>
+                          )}
+                          {histPrefs.isVisible('file_size') && (
+                            <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                              {fmtSize(imp.file_size || 0)}
+                            </td>
+                          )}
+                          {histPrefs.isVisible('tx_count') && (
+                            <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>
+                              {imp.transaction_count}
+                            </td>
+                          )}
                         </tr>
                         {isOpen && (
                           <tr key={`${imp.id}-detail`}>
-                            <td colSpan={6} style={{ padding: 0, background: 'var(--surface)' }}>
+                            <td colSpan={99} style={{ padding: 0, background: 'var(--surface)' }}>
                               {expandedLoading ? (
                                 <div style={{ padding: '12px 20px', color: 'var(--muted)', fontSize: 12 }}>Laster transaksjoner…</div>
                               ) : expandedTx.length === 0 ? (
@@ -388,41 +417,54 @@ export default function BankImport() {
                                     <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                                       {expandedTx.length} transaksjoner
                                     </span>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                                      {(() => {
-                                        const net = expandedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
-                                        return <span style={{ color: net >= 0 ? 'var(--green)' : '#e87474' }}>
-                                          netto {net >= 0 ? '+' : ''}{Math.round(net).toLocaleString('nb-NO')} kr
-                                        </span>
-                                      })()}
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                                        {(() => {
+                                          const net = expandedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
+                                          return <span style={{ color: net >= 0 ? 'var(--green)' : '#e87474' }}>
+                                            netto {net >= 0 ? '+' : ''}{Math.round(net).toLocaleString('nb-NO')} kr
+                                          </span>
+                                        })()}
+                                      </span>
+                                      <ColumnPicker prefs={detailPrefs} />
+                                    </div>
                                   </div>
                                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                                     <thead>
                                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Dato</th>
-                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>
-                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Kategori</th>
-                                        <th style={{ padding: '4px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>
-                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Status</th>
+                                        {detailPrefs.isVisible('date')        && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Dato</th>}
+                                        {detailPrefs.isVisible('description') && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>}
+                                        {detailPrefs.isVisible('category')    && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Kategori</th>}
+                                        {detailPrefs.isVisible('amount')      && <th style={{ padding: '4px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>}
+                                        {detailPrefs.isVisible('status')      && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Status</th>}
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {expandedTx.map(t => (
                                         <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                          <td style={{ padding: '5px 16px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{t.date}</td>
-                                          <td style={{ padding: '5px 16px', maxWidth: 320 }}>{t.description}</td>
-                                          <td style={{ padding: '5px 16px', color: 'var(--muted)' }}>{t.categories?.name || '—'}</td>
-                                          <td style={{ padding: '5px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
-                                            <span style={{ color: t.type === 'inntekt' ? 'var(--green)' : '#e87474' }}>
-                                              {t.type === 'utgift' ? '−' : '+'}{Math.round(Number(t.amount)).toLocaleString('nb-NO')} kr
-                                            </span>
-                                          </td>
-                                          <td style={{ padding: '5px 16px' }}>
-                                            <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
-                                              {t.approved ? 'Godkjent' : 'Venter'}
-                                            </span>
-                                          </td>
+                                          {detailPrefs.isVisible('date') && (
+                                            <td style={{ padding: '5px 16px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{t.date}</td>
+                                          )}
+                                          {detailPrefs.isVisible('description') && (
+                                            <td style={{ padding: '5px 16px', maxWidth: 320 }}>{t.description}</td>
+                                          )}
+                                          {detailPrefs.isVisible('category') && (
+                                            <td style={{ padding: '5px 16px', color: 'var(--muted)' }}>{t.categories?.name || '—'}</td>
+                                          )}
+                                          {detailPrefs.isVisible('amount') && (
+                                            <td style={{ padding: '5px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                                              <span style={{ color: t.type === 'inntekt' ? 'var(--green)' : '#e87474' }}>
+                                                {t.type === 'utgift' ? '−' : '+'}{Math.round(Number(t.amount)).toLocaleString('nb-NO')} kr
+                                              </span>
+                                            </td>
+                                          )}
+                                          {detailPrefs.isVisible('status') && (
+                                            <td style={{ padding: '5px 16px' }}>
+                                              <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
+                                                {t.approved ? 'Godkjent' : 'Venter'}
+                                              </span>
+                                            </td>
+                                          )}
                                         </tr>
                                       ))}
                                     </tbody>
