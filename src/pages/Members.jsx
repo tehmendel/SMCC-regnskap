@@ -62,7 +62,7 @@ function ConfidenceBar({ score }) {
 function MemberModal({ member, onClose, onSaved }) {
   const [form, setForm] = useState(member || {
     full_name: '', email: '', phone: '',
-    payment_type: 'monthly', join_date: '', active: true, notes: '',
+    payment_type: 'monthly', join_date: '', end_date: '', active: true, notes: '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -114,6 +114,21 @@ function MemberModal({ member, onClose, onSaved }) {
               <label className="form-label">Innmeldingsdato</label>
               <input className="form-input" type="date" value={form.join_date || ''}
                 onChange={e => setForm(f => ({ ...f, join_date: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Utmeldingsdato <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(valgfritt)</span></label>
+              <input className="form-input" type="date" value={form.end_date || ''}
+                onChange={e => setForm(f => ({ ...f, end_date: e.target.value || null }))} />
+            </div>
+            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
+              {form.end_date && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+                  Vises i statistikk for {new Date(form.end_date).getFullYear()},<br />
+                  ikke i {new Date(form.end_date).getFullYear() + 1} og frem.
+                </div>
+              )}
             </div>
           </div>
           <div className="form-group">
@@ -340,7 +355,12 @@ export default function Members() {
     load()
   }
 
-  const activeMembers = members.filter(m => m.active)
+  // Active for selected year: no end_date, or end_date is within or after the selected year
+  const activeMembers = members.filter(m => {
+    if (!m.active) return false
+    if (!m.end_date) return true
+    return m.end_date >= `${year}-01-01`
+  })
   const totalExpected = activeMembers.length * 3600
   const totalReceived = activeMembers.reduce((s, m) => s + totalPaid(m.id), 0)
 
@@ -423,18 +443,29 @@ export default function Members() {
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{member.full_name}</div>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>
                       {member.payment_type === 'yearly' ? 'Årsbetaler' : 'Månedsbetaler'}
+                      {member.end_date && (
+                        <span style={{ color: 'var(--red)', marginLeft: 4 }}>
+                          · sluttet {member.end_date}
+                        </span>
+                      )}
                     </div>
                   </td>
                   {MONTH_NAMES.map((_, i) => {
                     const month = i + 1
                     const paidThisMonth = isPaid(member.id, month)
                     const isPast = year < CURRENT_YEAR || (year === CURRENT_YEAR && month <= CURRENT_MONTH)
+                    const monthStr = `${year}-${String(month).padStart(2, '0')}-01`
+                    const afterEnd = member.end_date && monthStr > member.end_date
 
                     let bg = 'transparent'
                     let color = 'var(--border)'
                     let label = '—'
 
-                    if (paidThisMonth) {
+                    if (afterEnd) {
+                      bg = 'var(--surface)'
+                      color = 'var(--graphite)'
+                      label = ''
+                    } else if (paidThisMonth) {
                       bg = 'var(--green)'
                       color = '#fff'
                       label = hasYearlyPayment && member.payment_type === 'yearly' ? '✓' : '300'
@@ -448,14 +479,14 @@ export default function Members() {
                     return (
                       <td key={month} style={{ padding: 3, textAlign: 'center' }}>
                         <div
-                          title={isKasserer ? 'Klikk for å registrere / fjerne betaling' : ''}
+                          title={isKasserer && !afterEnd ? 'Klikk for å registrere / fjerne betaling' : ''}
                           style={{
                             borderRadius: 4, padding: '5px 2px', fontSize: 11,
                             fontFamily: 'var(--font-mono)', background: bg, color,
-                            cursor: isKasserer ? 'pointer' : 'default',
+                            cursor: isKasserer && !afterEnd ? 'pointer' : 'default',
                             userSelect: 'none', fontWeight: paidThisMonth ? 600 : 400,
                           }}
-                          onClick={() => isKasserer && toggleMonth(member, month)}
+                          onClick={() => isKasserer && !afterEnd && toggleMonth(member, month)}
                         >
                           {label}
                         </div>
