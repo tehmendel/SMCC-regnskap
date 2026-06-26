@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { fmt, fmtDate } from '../../lib/format'
 import { useColumnPrefs } from '../../hooks/useColumnPrefs'
 import { ColumnPicker } from '../../components/ColumnPicker'
+import { ResizableTh } from '../../components/ResizableTh'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -593,61 +594,37 @@ export default function ArrangementDetail() {
             </div>
           </div>
           <div className="table-wrap">
-            <table>
+            <table style={expPrefs.orderedVisible.some(c => expPrefs.getWidth(c.key)) ? { tableLayout: 'fixed' } : {}}>
               <thead>
                 <tr>
-                  {expPrefs.isVisible('date')        && <th>Dato</th>}
-                  {expPrefs.isVisible('description') && <th>Beskrivelse</th>}
-                  {expPrefs.isVisible('vendor')      && <th>Leverandør</th>}
-                  {expPrefs.isVisible('department')  && <th>Avdeling</th>}
-                  {expPrefs.isVisible('paid_by')     && <th>Hvem</th>}
-                  {expPrefs.isVisible('method')      && <th>Metode</th>}
-                  {expPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
-                  {expPrefs.isVisible('reimbursed')  && <th>Status</th>}
-                  {expPrefs.isVisible('notes')       && <th>Kommentar</th>}
-                  {isKasserer && expPrefs.isVisible('actions') && <th />}
+                  {expPrefs.orderedVisible.map(col => (
+                    <ResizableTh key={col.key} colKey={col.key} prefs={expPrefs}
+                      className={col.key === 'amount' ? 'text-right' : ''}>
+                      {col.label}
+                    </ResizableTh>
+                  ))}
+                  {isKasserer && <th style={{ width: 80 }} />}
                 </tr>
               </thead>
               <tbody>
                 {filteredExpenses.map(e => (
                   <tr key={e.id}>
-                    {expPrefs.isVisible('date') && (
-                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
-                    )}
-                    {expPrefs.isVisible('description') && (
-                      <td>
-                        {e.description}
-                        {e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}
-                        {e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
-                      </td>
-                    )}
-                    {expPrefs.isVisible('vendor') && (
-                      <td style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
-                    )}
-                    {expPrefs.isVisible('department') && (
-                      <td><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
-                    )}
-                    {expPrefs.isVisible('paid_by') && (
-                      <td style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
-                    )}
-                    {expPrefs.isVisible('method') && (
-                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
-                    )}
-                    {expPrefs.isVisible('amount') && (
-                      <td className="text-right amount-negative">{fmt(e.amount)}</td>
-                    )}
-                    {expPrefs.isVisible('reimbursed') && (
-                      <td>
-                        <span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>
-                          {e.reimbursed ? 'Utbetalt' : 'Venter'}
-                        </span>
-                      </td>
-                    )}
-                    {expPrefs.isVisible('notes') && (
-                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{e.notes || '—'}</td>
-                    )}
-                    {isKasserer && expPrefs.isVisible('actions') && (
-                      <td>
+                    {expPrefs.orderedVisible.map(col => {
+                      switch (col.key) {
+                        case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
+                        case 'description': return <td key={col.key}>{e.description}{e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}{e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}</td>
+                        case 'vendor':      return <td key={col.key} style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
+                        case 'department':  return <td key={col.key}><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
+                        case 'paid_by':     return <td key={col.key} style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
+                        case 'method':      return <td key={col.key} style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
+                        case 'amount':      return <td key={col.key} className="text-right amount-negative">{fmt(e.amount)}</td>
+                        case 'reimbursed':  return <td key={col.key}><span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>{e.reimbursed ? 'Utbetalt' : 'Venter'}</span></td>
+                        case 'notes':       return <td key={col.key} style={{ color: 'var(--muted)', fontSize: 12 }}>{e.notes || '—'}</td>
+                        default:            return <td key={col.key} />
+                      }
+                    })}
+                    {isKasserer && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <div className="flex gap-8">
                           {!e.transaction_id && (
                             <button className="btn btn-sm btn-secondary" onClick={() => { setEditExpense(e); setShowExpenseModal(true) }}>✎</button>
@@ -690,37 +667,30 @@ export default function ArrangementDetail() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table style={revPrefs.orderedVisible.some(c => revPrefs.getWidth(c.key)) ? { tableLayout: 'fixed' } : {}}>
                 <thead>
                   <tr>
-                    {revPrefs.isVisible('date')        && <th>Dato</th>}
-                    {revPrefs.isVisible('description') && <th>Beskrivelse</th>}
-                    {revPrefs.isVisible('source')      && <th>Kilde</th>}
-                    {revPrefs.isVisible('department')  && <th>Avdeling</th>}
-                    {revPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
+                    {revPrefs.orderedVisible.map(col => (
+                      <ResizableTh key={col.key} colKey={col.key} prefs={revPrefs}
+                        className={col.key === 'amount' ? 'text-right' : ''}>
+                        {col.label}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {revenues.map(r => (
                     <tr key={r.id}>
-                      {revPrefs.isVisible('date') && (
-                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
-                      )}
-                      {revPrefs.isVisible('description') && (
-                        <td>
-                          {r.description}
-                          {r.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
-                        </td>
-                      )}
-                      {revPrefs.isVisible('source') && (
-                        <td><span className="badge badge-inntekt">{r.source}</span></td>
-                      )}
-                      {revPrefs.isVisible('department') && (
-                        <td style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
-                      )}
-                      {revPrefs.isVisible('amount') && (
-                        <td className="text-right amount-positive">{fmt(r.amount)}</td>
-                      )}
+                      {revPrefs.orderedVisible.map(col => {
+                        switch (col.key) {
+                          case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
+                          case 'description': return <td key={col.key}>{r.description}{r.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}</td>
+                          case 'source':      return <td key={col.key}><span className="badge badge-inntekt">{r.source}</span></td>
+                          case 'department':  return <td key={col.key} style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
+                          case 'amount':      return <td key={col.key} className="text-right amount-positive">{fmt(r.amount)}</td>
+                          default:            return <td key={col.key} />
+                        }
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -779,44 +749,31 @@ export default function ArrangementDetail() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table style={linkedPrefs.orderedVisible.some(c => linkedPrefs.getWidth(c.key)) ? { tableLayout: 'fixed' } : {}}>
                 <thead>
                   <tr>
-                    {linkedPrefs.isVisible('date')        && <th>Dato</th>}
-                    {linkedPrefs.isVisible('description') && <th>Beskrivelse</th>}
-                    {linkedPrefs.isVisible('category')    && <th>Kategori</th>}
-                    {linkedPrefs.isVisible('type')        && <th>Type</th>}
-                    {linkedPrefs.isVisible('amount')      && <th className="text-right">Beløp</th>}
-                    {linkedPrefs.isVisible('status')      && <th>Status</th>}
+                    {linkedPrefs.orderedVisible.map(col => (
+                      <ResizableTh key={col.key} colKey={col.key} prefs={linkedPrefs}
+                        className={col.key === 'amount' ? 'text-right' : ''}>
+                        {col.label}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {linkedTx.map(t => (
                     <tr key={t.id}>
-                      {linkedPrefs.isVisible('date') && (
-                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
-                      )}
-                      {linkedPrefs.isVisible('description') && <td>{t.description}</td>}
-                      {linkedPrefs.isVisible('category') && (
-                        <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                      )}
-                      {linkedPrefs.isVisible('type') && (
-                        <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                      )}
-                      {linkedPrefs.isVisible('amount') && (
-                        <td className="text-right">
-                          <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                            {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                          </span>
-                        </td>
-                      )}
-                      {linkedPrefs.isVisible('status') && (
-                        <td>
-                          <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                            {t.approved ? 'Synket ✓' : 'Venter godkjenning'}
-                          </span>
-                        </td>
-                      )}
+                      {linkedPrefs.orderedVisible.map(col => {
+                        switch (col.key) {
+                          case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
+                          case 'description': return <td key={col.key}>{t.description}</td>
+                          case 'category':    return <td key={col.key} style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                          case 'type':        return <td key={col.key}><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                          case 'amount':      return <td key={col.key} className="text-right"><span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>{t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}</span></td>
+                          case 'status':      return <td key={col.key}><span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>{t.approved ? 'Synket ✓' : 'Venter godkjenning'}</span></td>
+                          default:            return <td key={col.key} />
+                        }
+                      })}
                     </tr>
                   ))}
                 </tbody>

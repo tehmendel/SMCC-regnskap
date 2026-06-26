@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
+import { ResizableTh } from '../components/ResizableTh'
 
 const HISTORY_COLS = [
   { key: 'filename',    label: 'Fil' },
@@ -372,15 +373,16 @@ export default function BankImport() {
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px 4px' }}>
                 <ColumnPicker prefs={histPrefs} />
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', ...(histPrefs.orderedVisible.some(c => histPrefs.getWidth(c.key)) ? { tableLayout: 'fixed' } : {}) }}>
                 <thead>
                   <tr>
                     <th style={{ width: 28 }} />
-                    {histPrefs.isVisible('filename')    && <th>Fil</th>}
-                    {histPrefs.isVisible('imported_at') && <th>Importert</th>}
-                    {histPrefs.isVisible('imported_by') && <th>Av</th>}
-                    {histPrefs.isVisible('file_size')   && <th className="text-right">Størrelse</th>}
-                    {histPrefs.isVisible('tx_count')    && <th className="text-right">Transaksjoner</th>}
+                    {histPrefs.orderedVisible.map(col => (
+                      <ResizableTh key={col.key} colKey={col.key} prefs={histPrefs}
+                        className={['file_size', 'tx_count'].includes(col.key) ? 'text-right' : ''}>
+                        {col.label}
+                      </ResizableTh>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -397,25 +399,16 @@ export default function BankImport() {
                           <td style={{ padding: '10px 12px', color: 'var(--muted)', fontSize: 13, userSelect: 'none' }}>
                             {isOpen ? '▾' : '▸'}
                           </td>
-                          {histPrefs.isVisible('filename') && (
-                            <td style={{ padding: '10px 12px', fontWeight: 500 }}>{imp.filename}</td>
-                          )}
-                          {histPrefs.isVisible('imported_at') && (
-                            <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{dateStr} {timeStr}</td>
-                          )}
-                          {histPrefs.isVisible('imported_by') && (
-                            <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{imp.profiles?.full_name || '—'}</td>
-                          )}
-                          {histPrefs.isVisible('file_size') && (
-                            <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
-                              {fmtSize(imp.file_size || 0)}
-                            </td>
-                          )}
-                          {histPrefs.isVisible('tx_count') && (
-                            <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>
-                              {imp.transaction_count}
-                            </td>
-                          )}
+                          {histPrefs.orderedVisible.map(col => {
+                            switch (col.key) {
+                              case 'filename':    return <td key={col.key} style={{ padding: '10px 12px', fontWeight: 500 }}>{imp.filename}</td>
+                              case 'imported_at': return <td key={col.key} style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{dateStr} {timeStr}</td>
+                              case 'imported_by': return <td key={col.key} style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{imp.profiles?.full_name || '—'}</td>
+                              case 'file_size':   return <td key={col.key} className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>{fmtSize(imp.file_size || 0)}</td>
+                              case 'tx_count':    return <td key={col.key} className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>{imp.transaction_count}</td>
+                              default:            return <td key={col.key} />
+                            }
+                          })}
                         </tr>
                         {isOpen && (
                           <tr key={`${imp.id}-detail`}>
@@ -444,42 +437,31 @@ export default function BankImport() {
                                       <ColumnPicker prefs={detailPrefs} />
                                     </div>
                                   </div>
-                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, ...(detailPrefs.orderedVisible.some(c => detailPrefs.getWidth(c.key)) ? { tableLayout: 'fixed' } : {}) }}>
                                     <thead>
                                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                                        {detailPrefs.isVisible('date')        && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Dato</th>}
-                                        {detailPrefs.isVisible('description') && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>}
-                                        {detailPrefs.isVisible('category')    && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Kategori</th>}
-                                        {detailPrefs.isVisible('amount')      && <th style={{ padding: '4px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>}
-                                        {detailPrefs.isVisible('status')      && <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Status</th>}
+                                        {detailPrefs.orderedVisible.map(col => (
+                                          <ResizableTh key={col.key} colKey={col.key} prefs={detailPrefs}
+                                            className={col.key === 'amount' ? 'text-right' : ''}
+                                            style={{ padding: '4px 16px', color: 'var(--muted)', fontWeight: 500 }}>
+                                            {col.label}
+                                          </ResizableTh>
+                                        ))}
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {expandedTx.map(t => (
                                         <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                          {detailPrefs.isVisible('date') && (
-                                            <td style={{ padding: '5px 16px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{t.date}</td>
-                                          )}
-                                          {detailPrefs.isVisible('description') && (
-                                            <td style={{ padding: '5px 16px', maxWidth: 320 }}>{t.description}</td>
-                                          )}
-                                          {detailPrefs.isVisible('category') && (
-                                            <td style={{ padding: '5px 16px', color: 'var(--muted)' }}>{t.categories?.name || '—'}</td>
-                                          )}
-                                          {detailPrefs.isVisible('amount') && (
-                                            <td style={{ padding: '5px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
-                                              <span style={{ color: t.type === 'inntekt' ? 'var(--green)' : '#e87474' }}>
-                                                {t.type === 'utgift' ? '−' : '+'}{Math.round(Number(t.amount)).toLocaleString('nb-NO')} kr
-                                              </span>
-                                            </td>
-                                          )}
-                                          {detailPrefs.isVisible('status') && (
-                                            <td style={{ padding: '5px 16px' }}>
-                                              <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
-                                                {t.approved ? 'Godkjent' : 'Venter'}
-                                              </span>
-                                            </td>
-                                          )}
+                                          {detailPrefs.orderedVisible.map(col => {
+                                            switch (col.key) {
+                                              case 'date':        return <td key={col.key} style={{ padding: '5px 16px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{t.date}</td>
+                                              case 'description': return <td key={col.key} style={{ padding: '5px 16px', maxWidth: 320 }}>{t.description}</td>
+                                              case 'category':    return <td key={col.key} style={{ padding: '5px 16px', color: 'var(--muted)' }}>{t.categories?.name || '—'}</td>
+                                              case 'amount':      return <td key={col.key} style={{ padding: '5px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}><span style={{ color: t.type === 'inntekt' ? 'var(--green)' : '#e87474' }}>{t.type === 'utgift' ? '−' : '+'}{Math.round(Number(t.amount)).toLocaleString('nb-NO')} kr</span></td>
+                                              case 'status':      return <td key={col.key} style={{ padding: '5px 16px' }}><span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>{t.approved ? 'Godkjent' : 'Venter'}</span></td>
+                                              default:            return <td key={col.key} />
+                                            }
+                                          })}
                                         </tr>
                                       ))}
                                     </tbody>
