@@ -144,6 +144,7 @@ export default function Transactions() {
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [bulkApproving, setBulkApproving] = useState(false)
 
   async function load() {
     const { data } = await supabase
@@ -168,6 +169,22 @@ export default function Transactions() {
       updated_by: profile.id,
     }).eq('id', t.id)
     load()
+  }
+
+  async function bulkApprove() {
+    const pending = filtered.filter(t => !t.approved)
+    if (!pending.length) return
+    if (!confirm(`Godkjenn ${pending.length} transaksjon${pending.length !== 1 ? 'er' : ''} i gjeldende visning?`)) return
+    setBulkApproving(true)
+    const ids = pending.map(t => t.id)
+    await supabase.from('transactions').update({
+      approved: true,
+      approved_by: profile.id,
+      approved_at: new Date().toISOString(),
+      updated_by: profile.id,
+    }).in('id', ids)
+    await load()
+    setBulkApproving(false)
   }
 
   async function deleteTransaction(id) {
@@ -256,11 +273,20 @@ export default function Transactions() {
             </button>
           ))}
           {(search || filterCategory || filterStatus !== 'alle' || filterType !== 'alle' || dateFrom || dateTo) && (
-            <button className="btn btn-sm btn-secondary" style={{ marginLeft: 'auto' }}
+            <button className="btn btn-sm btn-secondary"
               onClick={() => { setSearch(''); setFilterCategory(''); setFilterStatus('alle'); setFilterType('alle'); setDateFrom(''); setDateTo('') }}>
               Nullstill filtre
             </button>
           )}
+          {isKasserer && (() => {
+            const pendingCount = filtered.filter(t => !t.approved).length
+            return pendingCount > 0 ? (
+              <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }}
+                disabled={bulkApproving} onClick={bulkApprove}>
+                {bulkApproving ? 'Godkjenner…' : `Godkjenn alle (${pendingCount})`}
+              </button>
+            ) : null
+          })()}
         </div>
       </div>
 
