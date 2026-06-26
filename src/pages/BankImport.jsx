@@ -31,6 +31,7 @@ function fmtRemaining(elapsed, percent) {
 
 export default function BankImport() {
   const { profile } = useAuth()
+  const [activeTab, setActiveTab] = useState('import')
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState([])        // [{ elapsed, message }] newest first
@@ -43,6 +44,11 @@ export default function BankImport() {
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importDone, setImportDone] = useState(0)
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+  const [expandedTx, setExpandedTx] = useState([])
+  const [expandedLoading, setExpandedLoading] = useState(false)
   const inputRef = useRef()
   const timerRef = useRef(null)
   const startRef = useRef(null)
@@ -63,6 +69,32 @@ export default function BankImport() {
   }
 
   useEffect(() => () => clearInterval(timerRef.current), [])
+
+  async function loadHistory() {
+    setHistoryLoading(true)
+    const { data } = await supabase
+      .from('bank_imports')
+      .select('*, profiles:imported_by(full_name)')
+      .order('imported_at', { ascending: false })
+    setHistory(data || [])
+    setHistoryLoading(false)
+  }
+
+  useEffect(() => { if (activeTab === 'historikk') loadHistory() }, [activeTab])
+
+  async function expandImport(imp) {
+    if (expandedId === imp.id) { setExpandedId(null); setExpandedTx([]); return }
+    setExpandedId(imp.id)
+    setExpandedTx([])
+    setExpandedLoading(true)
+    const { data } = await supabase
+      .from('transactions')
+      .select('*, categories(name)')
+      .eq('bank_import_id', imp.id)
+      .order('date', { ascending: false })
+    setExpandedTx(data || [])
+    setExpandedLoading(false)
+  }
 
   function addLog(message) {
     const e = Math.floor((Date.now() - (startRef.current || Date.now())) / 1000)
@@ -212,6 +244,21 @@ export default function BankImport() {
   async function importAll() {
     setImporting(true)
     const selected = rows.filter(r => r.selected)
+
+    // Create import record first so we can link transactions to it
+    let importId = null
+    if (fileHashRef.current && fileInfo) {
+      const { data: imp } = await supabase.from('bank_imports').upsert({
+        file_hash: fileHashRef.current,
+        filename: fileInfo.name,
+        file_size: fileInfo.size,
+        transaction_count: selected.length,
+        imported_by: profile.id,
+        imported_at: new Date().toISOString(),
+      }, { onConflict: 'file_hash' }).select('id').single()
+      importId = imp?.id ?? null
+    }
+
     const txPayload = selected.map(r => ({
       date: r.date,
       description: r.description,
@@ -222,6 +269,7 @@ export default function BankImport() {
       created_by: profile.id,
       updated_by: profile.id,
       approved: false,
+      bank_import_id: importId,
     }))
 
     const { error: txErr } = await supabase.from('transactions').insert(txPayload)
@@ -244,18 +292,6 @@ export default function BankImport() {
       )
     }
 
-    // Save import record for duplicate detection
-    if (fileHashRef.current && fileInfo) {
-      await supabase.from('bank_imports').upsert({
-        file_hash: fileHashRef.current,
-        filename: fileInfo.name,
-        file_size: fileInfo.size,
-        transaction_count: selected.length,
-        imported_by: profile.id,
-        imported_at: new Date().toISOString(),
-      }, { onConflict: 'file_hash' })
-    }
-
     setImportDone(selected.length)
     setRows([])
     setVendorSuggestions([])
@@ -274,6 +310,140 @@ export default function BankImport() {
           <div className="page-sub">Last opp PDF eller CSV — AI analyserer og foreslår kategorier</div>
         </div>
       </div>
+
+      <div className="flex gap-8" style={{ marginBottom: 20 }}>
+        {['import', 'historikk'].map(t => (
+          <button key={t} className={`btn btn-sm ${activeTab === t ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab(t)}>
+            {t === 'import' ? 'Importer' : `Historikk${history.length > 0 ? ` (${history.length})` : ''}`}
+          </button>
+        ))}
+      </div>
+
+      {/* ── HISTORIKK-FANE ───────────────────────────────────── */}
+      {activeTab === 'historikk' && (
+        <div>
+          {historyLoading ? (
+            <div className="text-muted">Laster…</div>
+          ) : history.length === 0 ? (
+            <div className="card">
+              <div className="empty-state">
+                <div className="empty-state-icon">📂</div>
+                <div className="empty-state-text">Ingen importeringer registrert ennå.</div>
+              </div>
+            </div>
+          ) : (
+            <div className="card">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 28 }} />
+                    <th>Fil</th>
+                    <th>Importert</th>
+                    <th>Av</th>
+                    <th className="text-right">Størrelse</th>
+                    <th className="text-right">Transaksjoner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(imp => {
+                    const isOpen = expandedId === imp.id
+                    const d = new Date(imp.imported_at)
+                    const dateStr = d.toLocaleDateString('nb-NO', { day: '2-digit', month: 'short', year: 'numeric' })
+                    const timeStr = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
+                    return (
+                      <>
+                        <tr key={imp.id}
+                          style={{ borderTop: '1px solid var(--border)', cursor: 'pointer', background: isOpen ? 'var(--surface)' : 'transparent' }}
+                          onClick={() => expandImport(imp)}>
+                          <td style={{ padding: '10px 12px', color: 'var(--muted)', fontSize: 13, userSelect: 'none' }}>
+                            {isOpen ? '▾' : '▸'}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 500 }}>{imp.filename}</td>
+                          <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>
+                            {dateStr} {timeStr}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>
+                            {imp.profiles?.full_name || '—'}
+                          </td>
+                          <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                            {fmtSize(imp.file_size || 0)}
+                          </td>
+                          <td className="text-right" style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>
+                            {imp.transaction_count}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr key={`${imp.id}-detail`}>
+                            <td colSpan={6} style={{ padding: 0, background: 'var(--surface)' }}>
+                              {expandedLoading ? (
+                                <div style={{ padding: '12px 20px', color: 'var(--muted)', fontSize: 12 }}>Laster transaksjoner…</div>
+                              ) : expandedTx.length === 0 ? (
+                                <div style={{ padding: '12px 20px', color: 'var(--muted)', fontSize: 12 }}>
+                                  Ingen transaksjoner koblet til denne importen (eldre import uten sporbarhet).
+                                </div>
+                              ) : (
+                                <div style={{ padding: '0 0 8px 0' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px 6px' }}>
+                                    <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                      {expandedTx.length} transaksjoner
+                                    </span>
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                                      {(() => {
+                                        const net = expandedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
+                                        return <span style={{ color: net >= 0 ? 'var(--green)' : '#e87474' }}>
+                                          netto {net >= 0 ? '+' : ''}{Math.round(net).toLocaleString('nb-NO')} kr
+                                        </span>
+                                      })()}
+                                    </span>
+                                  </div>
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                    <thead>
+                                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Dato</th>
+                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>
+                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Kategori</th>
+                                        <th style={{ padding: '4px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>
+                                        <th style={{ padding: '4px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {expandedTx.map(t => (
+                                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                          <td style={{ padding: '5px 16px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{t.date}</td>
+                                          <td style={{ padding: '5px 16px', maxWidth: 320 }}>{t.description}</td>
+                                          <td style={{ padding: '5px 16px', color: 'var(--muted)' }}>{t.categories?.name || '—'}</td>
+                                          <td style={{ padding: '5px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                                            <span style={{ color: t.type === 'inntekt' ? 'var(--green)' : '#e87474' }}>
+                                              {t.type === 'utgift' ? '−' : '+'}{Math.round(Number(t.amount)).toLocaleString('nb-NO')} kr
+                                            </span>
+                                          </td>
+                                          <td style={{ padding: '5px 16px' }}>
+                                            <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 10 }}>
+                                              {t.approved ? 'Godkjent' : 'Venter'}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── IMPORT-FANE ──────────────────────────────────────── */}
+      {activeTab === 'import' && <>
 
       {error && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>
@@ -549,6 +719,8 @@ export default function BankImport() {
           </div>
         </>
       )}
+
+      </> /* end activeTab === 'import' */}
     </div>
   )
 }
