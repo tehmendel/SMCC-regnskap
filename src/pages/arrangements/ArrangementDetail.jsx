@@ -126,8 +126,10 @@ function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) 
     e.preventDefault()
     setSaving(true)
     setError('')
+    // Strip any joined relation objects that came from the loaded editItem
+    const { arrangement_departments: _dept, ...formFields } = form
     const payload = {
-      ...form,
+      ...formFields,
       amount: parseFloat(form.amount),
       arrangement_id: arrangement.id,
       created_by: profile.id,
