@@ -15,10 +15,6 @@ function normTx(s) {
     .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()
 }
 
-function txPattern(desc) {
-  return normTx(desc).slice(0, 60)
-}
-
 function scoreMatch(desc, member, hist, boosts = {}) {
   const d = normTx(desc)
   const parts = normTx(member.full_name).split(' ').filter(p => p.length > 1)
@@ -31,8 +27,8 @@ function scoreMatch(desc, member, hist, boosts = {}) {
     const hHits = parts.filter(p => hd.includes(p)).length
     return hHits / parts.length >= 0.5
   })
-  // Learned boost: only applies when there's at least some name match
-  const boost = nameScore > 0 ? (boosts[`${member.id}|${txPattern(desc)}`] || 0) : 0
+  // Boost keyed on member_id — applies to ALL future transactions for this member
+  const boost = nameScore > 0 ? (boosts[member.id] || 0) : 0
   return Math.min(1.0, nameScore + (histConfirmed && nameScore > 0.5 ? 0.08 : 0) + boost)
 }
 
@@ -45,8 +41,9 @@ function getBestMatch(tx, members, hist, boosts = {}) {
   return bestScore >= 0.45 ? { member: best, score: bestScore } : null
 }
 
-async function recordBoost(memberId, desc) {
-  const pattern = txPattern(desc)
+async function recordBoost(memberId, memberName) {
+  // Pattern is the member's normalized name — one boost row per member
+  const pattern = normTx(memberName)
   const { data: existing } = await supabase
     .from('member_tx_boosts').select('boost, confirmation_count')
     .eq('member_id', memberId).eq('pattern', pattern).single()
@@ -170,7 +167,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
       payment_date: transaction.date,
       transaction_id: transaction.id,
     })
-    await recordBoost(memberId, transaction.description)
+    await recordBoost(memberId, selected?.full_name || '')
     onSaved(); onClose()
   }
 
@@ -267,7 +264,7 @@ export default function Members() {
 
     const boostsMap = {}
     for (const b of bRes.data || []) {
-      boostsMap[`${b.member_id}|${b.pattern}`] = b.boost
+      boostsMap[b.member_id] = b.boost
     }
     setBoosts(boostsMap)
 
@@ -343,7 +340,7 @@ export default function Members() {
         })
         if (!error) {
           autoLinked.push({ tx, member: match.member, score: match.score })
-          await recordBoost(match.member.id, tx.description)
+          await recordBoost(match.member.id, match.member.full_name)
         } else {
           newSuggestions[tx.id] = match
         }
