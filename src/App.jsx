@@ -50,7 +50,6 @@ function Sidebar() {
       <NavItem to="/transaksjoner" icon="↕" label="Transaksjoner" />
       <NavItem to="/kategorier" icon="◈" label="Kategorier" />
       <NavItem to="/leverandorer" icon="◎" label="Leverandører" />
-      <NavItem to="/bankimport" icon="↥" label="Importer utskrift" />
       <NavItem to="/medlemsavgift" icon="◈" label="Medlemsavgift" />
       <NavItem to="/reisekassen" icon="✈" label="Reisekassen" />
 

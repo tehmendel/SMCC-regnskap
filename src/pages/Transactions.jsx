@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
@@ -147,6 +148,7 @@ function Modal({ onClose, onSaved, editItem }) {
 
 export default function Transactions() {
   const { isKasserer, isAdmin, profile } = useAuth()
+  const navigate = useNavigate()
   const prefs = useColumnPrefs('transactions', COLUMNS)
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
@@ -160,6 +162,7 @@ export default function Transactions() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [bulkApproving, setBulkApproving] = useState(false)
+  const [lastImport, setLastImport] = useState(null)
 
   async function load() {
     const { data } = await supabase
@@ -174,6 +177,9 @@ export default function Transactions() {
     load()
     supabase.from('categories').select('*').eq('active', true).order('name')
       .then(({ data }) => setCategories(data || []))
+    supabase.from('bank_imports').select('imported_at, transaction_count, filename')
+      .order('imported_at', { ascending: false }).limit(1).single()
+      .then(({ data }) => setLastImport(data || null))
   }, [])
 
   async function toggleApprove(t) {
@@ -287,13 +293,31 @@ export default function Transactions() {
       <div className="page-header">
         <div>
           <div className="page-title">Transaksjoner</div>
-          <div className="page-sub">{filtered.length} av {transactions.length} poster</div>
+          <div className="page-sub" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>{filtered.length} av {transactions.length} poster</span>
+            {lastImport && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Sist importert:{' '}
+                <span style={{ color: 'var(--dim)' }}>
+                  {new Date(lastImport.imported_at).toLocaleDateString('nb-NO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {' '}· {lastImport.transaction_count} transaksjoner · {lastImport.filename}
+                </span>
+              </span>
+            )}
+          </div>
         </div>
-        {isKasserer && (
-          <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowModal(true) }}>
-            + Ny transaksjon
-          </button>
-        )}
+        <div className="flex gap-8">
+          {isKasserer && (
+            <button className="btn btn-secondary" onClick={() => navigate('/bankimport')}>
+              ↥ Importer kontoutskrift
+            </button>
+          )}
+          {isKasserer && (
+            <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowModal(true) }}>
+              + Ny transaksjon
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>

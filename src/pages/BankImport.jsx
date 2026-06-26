@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
@@ -50,6 +51,7 @@ function fmtRemaining(elapsed, percent) {
 
 export default function BankImport() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const histPrefs   = useColumnPrefs('import_history', HISTORY_COLS)
   const detailPrefs = useColumnPrefs('import_history_tx', DETAIL_COLS)
   const [activeTab, setActiveTab] = useState('import')
@@ -101,6 +103,7 @@ export default function BankImport() {
     setHistoryLoading(false)
   }
 
+  useEffect(() => { loadHistory() }, [])
   useEffect(() => { if (activeTab === 'historikk') loadHistory() }, [activeTab])
 
   async function expandImport(imp) {
@@ -340,6 +343,12 @@ export default function BankImport() {
 
   return (
     <div>
+      <div style={{ marginBottom: 8 }}>
+        <button className="btn btn-sm btn-secondary" onClick={() => navigate('/transaksjoner')}
+          style={{ fontSize: 12, color: 'var(--muted)' }}>
+          ← Transaksjoner
+        </button>
+      </div>
       <div className="page-header">
         <div>
           <div className="page-title">Importer kontoutskrift</div>
