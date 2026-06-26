@@ -53,6 +53,19 @@ export default function Vendors() {
     load()
   }
 
+  async function deleteVendor(v) {
+    const { count } = await supabase
+      .from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('vendor_id', v.id)
+    const msg = count > 0
+      ? `«${v.name}» er knyttet til ${count} transaksjon${count !== 1 ? 'er' : ''}.\nDisse mister leverandørkoblingen. Vil du likevel slette?`
+      : `Slett leverandøren «${v.name}»?`
+    if (!confirm(msg)) return
+    await supabase.from('vendors').delete().eq('id', v.id)
+    load()
+  }
+
   async function saveVendor(v) {
     const name = edits[v.id]?.name ?? v.name
     const catId = edits[v.id]?.suggested_category_id !== undefined
@@ -211,9 +224,12 @@ export default function Vendors() {
                       </div>
                     </td>
                     <td>
-                      {hasEdits && (
-                        <button className="btn btn-sm btn-primary" onClick={() => saveVendor(v)}>Lagre</button>
-                      )}
+                      <div className="flex gap-8">
+                        {hasEdits && (
+                          <button className="btn btn-sm btn-primary" onClick={() => saveVendor(v)}>Lagre</button>
+                        )}
+                        <button className="btn btn-sm btn-danger" onClick={() => deleteVendor(v)}>Slett</button>
+                      </div>
                     </td>
                   </tr>
                 )
