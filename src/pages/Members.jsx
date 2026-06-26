@@ -325,12 +325,13 @@ export default function Members() {
           }).eq('id', tx.id)
         }
         const txDate = tx.date
+        const txYear = new Date(txDate).getFullYear()
         const txMonth = new Date(txDate).getMonth() + 1
-        const rate = getRateForMonth(feeRates, year, txMonth)
+        const rate = getRateForMonth(feeRates, txYear, txMonth)
         const amount = match.member.payment_type === 'yearly' ? (rate.amount_yearly || rate.amount_monthly * 12) : rate.amount_monthly
         const { error } = await supabase.from('member_payments').insert({
           member_id: match.member.id,
-          year,
+          year: txYear,
           month: match.member.payment_type === 'yearly' ? null : txMonth,
           amount,
           payment_date: txDate,
