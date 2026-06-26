@@ -8,22 +8,33 @@ function fmt(amount) {
 
 function Modal({ onClose, onSaved, editItem }) {
   const { profile } = useAuth()
-  const [form, setForm] = useState(editItem || { date: '', description: '', amount: '', type: 'utgift', category_id: '', notes: '' })
+  const [form, setForm] = useState(editItem || {
+    date: '', description: '', amount: '', type: 'utgift',
+    category_id: '', arrangement_id: '', notes: '',
+  })
   const [categories, setCategories] = useState([])
+  const [arrangements, setArrangements] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    supabase.from('categories').select('*').eq('active', true).then(({ data }) => setCategories(data || []))
+    supabase.from('categories').select('*').eq('active', true).order('name')
+      .then(({ data }) => setCategories(data || []))
+    supabase.from('arrangements').select('id, name, start_date').order('start_date', { ascending: false })
+      .then(({ data }) => setArrangements(data || []))
   }, [])
+
+  const selectedCategory = categories.find(c => c.id === form.category_id)
+  const isArrangementCategory = selectedCategory?.name?.toLowerCase().includes('arrangement')
 
   async function save(andApprove = false) {
     setError('')
     setSaving(true)
-    const { categories: _cat, ...formFields } = form
+    const { categories: _cat, arrangements: _arr, ...formFields } = form
     const payload = {
       ...formFields,
       amount: parseFloat(form.amount),
+      arrangement_id: isArrangementCategory ? (form.arrangement_id || null) : null,
       created_by: profile.id,
       updated_by: profile.id,
     }
@@ -51,20 +62,24 @@ function Modal({ onClose, onSaved, editItem }) {
         <form onSubmit={e => { e.preventDefault(); save(false) }}>
           <div className="form-group">
             <label className="form-label">Dato</label>
-            <input className="form-input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} required />
+            <input className="form-input" type="date" value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))} required />
           </div>
           <div className="form-group">
             <label className="form-label">Beskrivelse</label>
-            <input className="form-input" type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
+            <input className="form-input" type="text" value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Beløp (NOK)</label>
-              <input className="form-input" type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+              <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
             </div>
             <div className="form-group">
               <label className="form-label">Type</label>
-              <select className="form-select" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+              <select className="form-select" value={form.type}
+                onChange={e => setForm(f => ({ ...f, type: e.target.value, category_id: '', arrangement_id: '' }))}>
                 <option value="inntekt">Inntekt</option>
                 <option value="utgift">Utgift</option>
               </select>
@@ -72,20 +87,40 @@ function Modal({ onClose, onSaved, editItem }) {
           </div>
           <div className="form-group">
             <label className="form-label">Kategori</label>
-            <select className="form-select" value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}>
+            <select className="form-select" value={form.category_id}
+              onChange={e => setForm(f => ({ ...f, category_id: e.target.value, arrangement_id: '' }))}>
               <option value="">Velg kategori…</option>
               {categories.filter(c => c.type === form.type).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </div>
+
+          {isArrangementCategory && (
+            <div className="form-group">
+              <label className="form-label">Arrangement</label>
+              <select className="form-select" value={form.arrangement_id || ''}
+                onChange={e => setForm(f => ({ ...f, arrangement_id: e.target.value || null }))}>
+                <option value="">— velg arrangement —</option>
+                {arrangements.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}{a.start_date ? ` (${a.start_date.slice(0, 4)})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">Notater</label>
-            <textarea className="form-textarea" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+            <textarea className="form-textarea" value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
           <div className="flex gap-8 mt-16">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
-            <button type="submit" className="btn btn-secondary" disabled={saving}>{saving ? 'Lagrer…' : 'Lagre'}</button>
+            <button type="submit" className="btn btn-secondary" disabled={saving}>
+              {saving ? 'Lagrer…' : 'Lagre'}
+            </button>
             <button type="button" className="btn btn-primary" disabled={saving} onClick={() => save(true)}>
               {saving ? 'Lagrer…' : 'Lagre og godkjenn'}
             </button>
@@ -113,7 +148,7 @@ export default function Transactions() {
   async function load() {
     const { data } = await supabase
       .from('transactions')
-      .select('*, categories(name)')
+      .select('*, categories(name), arrangements(name)')
       .order('date', { ascending: false })
     setTransactions(data || [])
     setLoading(false)
@@ -255,7 +290,14 @@ export default function Transactions() {
                 {filtered.map(t => (
                   <tr key={t.id}>
                     <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
-                    <td>{t.description}</td>
+                    <td>
+                      <div>{t.description}</div>
+                      {t.arrangements?.name && (
+                        <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
+                          ⬡ {t.arrangements.name}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
                     <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
                     <td className="text-right">
@@ -271,7 +313,8 @@ export default function Transactions() {
                     {isKasserer && (
                       <td>
                         <div className="flex gap-8">
-                          <button className="btn btn-sm btn-secondary" onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
+                          <button className="btn btn-sm btn-secondary"
+                            onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
                           <button className="btn btn-sm btn-secondary" onClick={() => toggleApprove(t)}>
                             {t.approved ? 'Angre' : 'Godkjenn'}
                           </button>

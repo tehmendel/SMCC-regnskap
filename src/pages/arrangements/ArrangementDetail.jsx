@@ -132,6 +132,7 @@ export default function ArrangementDetail() {
   const [expenses, setExpenses] = useState([])
   const [revenues, setRevenues] = useState([])
   const [vippsAccounts, setVippsAccounts] = useState([])
+  const [linkedTx, setLinkedTx] = useState([])
   const [activeTab, setActiveTab] = useState('oversikt')
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [editExpense, setEditExpense] = useState(null)
@@ -139,18 +140,20 @@ export default function ArrangementDetail() {
   const [loading, setLoading] = useState(true)
 
   async function load() {
-    const [arrRes, deptRes, expRes, revRes, vippsRes] = await Promise.all([
+    const [arrRes, deptRes, expRes, revRes, vippsRes, txRes] = await Promise.all([
       supabase.from('arrangements').select('*').eq('id', id).single(),
       supabase.from('arrangement_departments').select('*').eq('arrangement_id', id).order('sort_order'),
       supabase.from('arrangement_expenses').select('*, arrangement_departments(name)').eq('arrangement_id', id).order('expense_date'),
       supabase.from('arrangement_revenues').select('*, arrangement_departments(name)').eq('arrangement_id', id).order('revenue_date'),
       supabase.from('arrangement_vipps_accounts').select('*').eq('arrangement_id', id),
+      supabase.from('transactions').select('*, categories(name)').eq('arrangement_id', id).order('date', { ascending: false }),
     ])
     setArrangement(arrRes.data)
     setDepartments(deptRes.data || [])
     setExpenses(expRes.data || [])
     setRevenues(revRes.data || [])
     setVippsAccounts(vippsRes.data || [])
+    setLinkedTx(txRes.data || [])
     setLoading(false)
   }
 
@@ -184,7 +187,7 @@ export default function ArrangementDetail() {
     ? expenses
     : expenses.filter(e => e.arrangement_departments?.name === filterDept)
 
-  const tabs = ['oversikt', 'utgifter', 'inntekter', 'vipps', 'utbetalinger']
+  const tabs = ['oversikt', 'utgifter', 'inntekter', 'vipps', 'utbetalinger', 'transaksjoner']
 
   return (
     <div>
@@ -415,6 +418,79 @@ export default function ArrangementDetail() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* BANKTRANSAKSJONER */}
+      {activeTab === 'transaksjoner' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 0 }}>
+              Banktransaksjoner ({linkedTx.length})
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Transaksjoner koblet til dette arrangementet via kategori i transaksjonsregisteret
+            </div>
+          </div>
+          {linkedTx.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-text">
+                Ingen banktransaksjoner er koblet til dette arrangementet ennå.<br />
+                Koble dem ved å velge en arrangement-kategori og dette arrangementet i Transaksjoner.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Dato</th>
+                      <th>Beskrivelse</th>
+                      <th>Kategori</th>
+                      <th>Type</th>
+                      <th className="text-right">Beløp</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linkedTx.map(t => (
+                      <tr key={t.id}>
+                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
+                        <td>{t.description}</td>
+                        <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                        <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                        <td className="text-right">
+                          <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+                            {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                            {t.approved ? 'Godkjent' : 'Venter'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                        NETTO (inntekt − utgift)
+                      </td>
+                      <td className="text-right" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {(() => {
+                          const net = linkedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
+                          return <span className={net >= 0 ? 'amount-positive' : 'amount-negative'}>{fmt(net)}</span>
+                        })()}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
