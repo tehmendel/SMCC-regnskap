@@ -5,12 +5,111 @@ import { useAuth } from '../../context/AuthContext'
 import { fmt, fmtDate } from '../../lib/format'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell,
 } from 'recharts'
 
 const COLORS = ['#E85D26','#22C55E','#EAB308','#3B82F6','#A855F7','#EC4899']
 const PAYMENT_METHODS = ['bank','smcc_kort','bonger','kontant','faktura']
 const PAYMENT_LABELS = { bank:'Bank', smcc_kort:'SMCC Kort', bonger:'Bonger', kontant:'Kontant', faktura:'Faktura' }
+const STATUSES = ['planlagt','aktiv','avsluttet','arkivert']
+const STATUS_NEXT = { planlagt:'aktiv', aktiv:'avsluttet', avsluttet:'arkivert' }
+const STATUS_NEXT_LABEL = { planlagt:'Aktiver', aktiv:'Avslutt', avsluttet:'Arkiver' }
+
+function EditArrangementModal({ arrangement, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [form, setForm] = useState({
+    name:                  arrangement.name || '',
+    year:                  arrangement.year || new Date().getFullYear(),
+    start_date:            arrangement.start_date || '',
+    end_date:              arrangement.end_date || '',
+    location:              arrangement.location || '',
+    description:           arrangement.description || '',
+    status:                arrangement.status || 'planlagt',
+    participant_count:     arrangement.participant_count || '',
+    budget_total:          arrangement.budget_total || '',
+    expected_participants: arrangement.expected_participants || '',
+    ticket_price:          arrangement.ticket_price || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase.from('arrangements').update({
+      ...form,
+      participant_count:     form.participant_count     ? parseInt(form.participant_count)     : null,
+      budget_total:          form.budget_total          ? parseFloat(form.budget_total)          : null,
+      expected_participants: form.expected_participants ? parseInt(form.expected_participants) : null,
+      ticket_price:          form.ticket_price          ? parseFloat(form.ticket_price)          : null,
+      start_date:            form.start_date || null,
+      end_date:              form.end_date   || null,
+      updated_by:            profile.id,
+      updated_at:            new Date().toISOString(),
+    }).eq('id', arrangement.id)
+    if (error) setError(error.message)
+    else { onSaved(); onClose() }
+    setSaving(false)
+  }
+
+  const f = (field, label, type = 'text', required = false) => (
+    <div className="form-group">
+      <label className="form-label">{label}</label>
+      <input className="form-input" type={type} value={form[field]}
+        onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
+        required={required} />
+    </div>
+  )
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 540 }}>
+        <div className="modal-title">Rediger arrangement</div>
+        {error && <div className="alert alert-error">{error}</div>}
+        <form onSubmit={save}>
+          {f('name', 'Navn', 'text', true)}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            {f('year', 'År', 'number')}
+            {f('start_date', 'Startdato', 'date')}
+            {f('end_date', 'Sluttdato', 'date')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+            {f('location', 'Sted')}
+            <div className="form-group">
+              <label className="form-label">Status</label>
+              <select className="form-select" value={form.status}
+                onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
+                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Beskrivelse</label>
+            <textarea className="form-textarea" value={form.description}
+              onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Økonomiplanlegging
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+              {f('budget_total', 'Totalbudsjett (kr)', 'number')}
+              {f('participant_count', 'Faktiske deltakere', 'number')}
+              {f('expected_participants', 'Forventet antall', 'number')}
+              {f('ticket_price', 'Billettpris (kr)', 'number')}
+            </div>
+          </div>
+          <div className="flex gap-8 mt-16">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Lagrer…' : 'Lagre'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) {
   const { profile } = useAuth()
@@ -135,6 +234,7 @@ export default function ArrangementDetail() {
   const [linkedTx, setLinkedTx] = useState([])
   const [activeTab, setActiveTab] = useState('oversikt')
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [editExpense, setEditExpense] = useState(null)
   const [filterDept, setFilterDept] = useState('alle')
   const [loading, setLoading] = useState(true)
@@ -159,6 +259,13 @@ export default function ArrangementDetail() {
 
   useEffect(() => { load() }, [id])
 
+  async function advanceStatus() {
+    const next = STATUS_NEXT[arrangement.status]
+    if (!next) return
+    await supabase.from('arrangements').update({ status: next }).eq('id', id)
+    load()
+  }
+
   async function markReimbursed(expense) {
     await supabase.from('arrangement_expenses').update({
       reimbursed: !expense.reimbursed,
@@ -175,13 +282,22 @@ export default function ArrangementDetail() {
   const totalVipps = vippsAccounts.reduce((s, v) => s + Number(v.total_sales || 0), 0)
   const result = totalRevenues - totalExpenses
   const outstanding = expenses.filter(e => !e.reimbursed).reduce((s, e) => s + Number(e.amount), 0)
+  const budgetUsedPct = arrangement.budget_total ? Math.min((totalExpenses / arrangement.budget_total) * 100, 100) : null
+
+  // Break-even
+  const breakEvenParticipants = arrangement.ticket_price && arrangement.ticket_price > 0
+    ? Math.ceil(totalExpenses / arrangement.ticket_price)
+    : null
+  const projectedRevenue = arrangement.expected_participants && arrangement.ticket_price
+    ? arrangement.expected_participants * arrangement.ticket_price
+    : null
 
   // Per avdeling
   const deptData = departments.map(d => ({
     name: d.name,
     utgifter: expenses.filter(e => e.department_id === d.id).reduce((s, e) => s + Number(e.amount), 0),
     budsjett: d.budget || 0,
-  })).filter(d => d.utgifter > 0)
+  })).filter(d => d.utgifter > 0 || d.budsjett > 0)
 
   const filteredExpenses = filterDept === 'alle'
     ? expenses
@@ -191,24 +307,13 @@ export default function ArrangementDetail() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
-            <Link to="/arrangementer" style={{ color: 'var(--muted)', textDecoration: 'none' }}>← Arrangementer</Link>
-          </div>
-          <div className="page-title">{arrangement.name}</div>
-          <div className="page-sub">{fmtDate(arrangement.start_date)} – {fmtDate(arrangement.end_date)} · {arrangement.location}</div>
-        </div>
-        <div className="flex gap-8">
-          <span className={`badge badge-${arrangement.status === 'aktiv' ? 'approved' : 'pending'}`}>{arrangement.status}</span>
-          {isKasserer && (
-            <button className="btn btn-primary" onClick={() => { setEditExpense(null); setShowExpenseModal(true) }}>
-              + Utgift
-            </button>
-          )}
-        </div>
-      </div>
-
+      {showEditModal && (
+        <EditArrangementModal
+          arrangement={arrangement}
+          onClose={() => setShowEditModal(false)}
+          onSaved={load}
+        />
+      )}
       {showExpenseModal && (
         <ExpenseModal
           arrangement={arrangement}
@@ -219,6 +324,41 @@ export default function ArrangementDetail() {
         />
       )}
 
+      <div className="page-header">
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+            <Link to="/arrangementer" style={{ color: 'var(--muted)', textDecoration: 'none' }}>← Arrangementer</Link>
+          </div>
+          <div className="page-title">{arrangement.name}</div>
+          <div className="page-sub">
+            {fmtDate(arrangement.start_date)}
+            {arrangement.end_date && arrangement.end_date !== arrangement.start_date && ` – ${fmtDate(arrangement.end_date)}`}
+            {arrangement.location && ` · ${arrangement.location}`}
+            {arrangement.participant_count && ` · ${arrangement.participant_count} deltakere`}
+          </div>
+        </div>
+        <div className="flex gap-8" style={{ alignItems: 'center' }}>
+          <span className={`badge badge-${arrangement.status === 'aktiv' ? 'approved' : 'pending'}`}>
+            {arrangement.status}
+          </span>
+          {isKasserer && STATUS_NEXT[arrangement.status] && (
+            <button className="btn btn-sm btn-secondary" onClick={advanceStatus}>
+              {STATUS_NEXT_LABEL[arrangement.status]} →
+            </button>
+          )}
+          {isKasserer && (
+            <button className="btn btn-secondary" onClick={() => setShowEditModal(true)}>
+              Rediger
+            </button>
+          )}
+          {isKasserer && (
+            <button className="btn btn-primary" onClick={() => { setEditExpense(null); setShowExpenseModal(true) }}>
+              + Utgift
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* KPI-er */}
       <div className="stat-grid" style={{ marginBottom: 24 }}>
         <div className="stat-box">
@@ -228,10 +368,26 @@ export default function ArrangementDetail() {
         <div className="stat-box">
           <div className="stat-label">Utgifter</div>
           <div className="stat-value negative">{fmt(totalExpenses)}</div>
+          {budgetUsedPct !== null && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ width: `${budgetUsedPct}%`, height: '100%', borderRadius: 2,
+                  background: budgetUsedPct > 90 ? 'var(--red)' : budgetUsedPct > 70 ? 'var(--yellow)' : 'var(--green)' }} />
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+                {budgetUsedPct.toFixed(0)}% av budsjett ({fmt(arrangement.budget_total)})
+              </div>
+            </div>
+          )}
         </div>
         <div className="stat-box">
           <div className="stat-label">Resultat</div>
           <div className={`stat-value ${result >= 0 ? 'positive' : 'negative'}`}>{fmt(result)}</div>
+          {projectedRevenue && (
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+              Forventet: {fmt(projectedRevenue - totalExpenses)}
+            </div>
+          )}
         </div>
         <div className="stat-box">
           <div className="stat-label">Vipps total</div>
@@ -241,10 +397,15 @@ export default function ArrangementDetail() {
           <div className="stat-label">Utestående refusjon</div>
           <div className={`stat-value ${outstanding > 0 ? 'negative' : ''}`}>{fmt(outstanding)}</div>
         </div>
-        {arrangement.participant_count && (
+        {breakEvenParticipants && (
           <div className="stat-box">
-            <div className="stat-label">Kostnad per deltaker</div>
-            <div className="stat-value">{fmt(totalExpenses / arrangement.participant_count)}</div>
+            <div className="stat-label">Break-even</div>
+            <div className={`stat-value ${(arrangement.participant_count || arrangement.expected_participants || 0) >= breakEvenParticipants ? 'positive' : 'negative'}`}>
+              {breakEvenParticipants} pers.
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+              ved {fmt(arrangement.ticket_price)}/billett
+            </div>
           </div>
         )}
       </div>
@@ -255,6 +416,11 @@ export default function ArrangementDetail() {
           <button key={t} className={`btn btn-sm ${activeTab === t ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setActiveTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'transaksjoner' && linkedTx.length > 0 && (
+              <span style={{ marginLeft: 5, background: 'var(--accent)', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10 }}>
+                {linkedTx.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -263,33 +429,113 @@ export default function ArrangementDetail() {
       {activeTab === 'oversikt' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div className="card">
-            <div className="card-title">Utgifter per avdeling</div>
+            <div className="card-title">Budsjett vs. faktisk per avdeling</div>
             {deptData.length === 0 ? (
-              <div className="empty-state"><div className="empty-state-text">Ingen utgifter registrert</div></div>
+              <div className="empty-state"><div className="empty-state-text">Ingen data ennå</div></div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={deptData}>
-                  <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
-                  <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-                  <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={deptData}>
+                    <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
+                    <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <Bar dataKey="budsjett" fill="var(--graphite)" radius={[3,3,0,0]} name="Budsjett" />
+                    <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} name="Faktisk" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{ marginTop: 12 }}>
+                  {deptData.filter(d => d.budsjett > 0).map(d => {
+                    const pct = Math.min((d.utgifter / d.budsjett) * 100, 100)
+                    const over = d.utgifter > d.budsjett
+                    return (
+                      <div key={d.name} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                          <span style={{ color: 'var(--dim)' }}>{d.name}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', color: over ? 'var(--red)' : 'var(--muted)', fontSize: 11 }}>
+                            {fmt(d.utgifter)} / {fmt(d.budsjett)}
+                          </span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2,
+                            background: over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)' }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
           </div>
-          <div className="card">
-            <div className="card-title">Fordeling</div>
-            {deptData.length === 0 ? (
-              <div className="empty-state"><div className="empty-state-text">Ingen data</div></div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={deptData} dataKey="utgifter" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
-                    {deptData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)' }} />
-                </PieChart>
-              </ResponsiveContainer>
+
+          <div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title">Utgiftsfordeling</div>
+              {deptData.length === 0 ? (
+                <div className="empty-state"><div className="empty-state-text">Ingen data</div></div>
+              ) : (
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={deptData} dataKey="utgifter" nameKey="name" cx="50%" cy="50%" outerRadius={70}
+                      label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent*100).toFixed(0)}%` : ''}
+                      labelLine={false}>
+                      {deptData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {(breakEvenParticipants || arrangement.budget_total) && (
+              <div className="card">
+                <div className="card-title">Kalkyle</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <tbody>
+                    {arrangement.budget_total && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 0', color: 'var(--dim)' }}>Totalbudsjett</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmt(arrangement.budget_total)}</td>
+                      </tr>
+                    )}
+                    {arrangement.expected_participants && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 0', color: 'var(--dim)' }}>Forventet deltakere</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{arrangement.expected_participants}</td>
+                      </tr>
+                    )}
+                    {arrangement.ticket_price && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 0', color: 'var(--dim)' }}>Billettpris</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmt(arrangement.ticket_price)}</td>
+                      </tr>
+                    )}
+                    {projectedRevenue && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 0', color: 'var(--dim)' }}>Forventet billetinntekt</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{fmt(projectedRevenue)}</td>
+                      </tr>
+                    )}
+                    {breakEvenParticipants && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '6px 0', color: 'var(--dim)' }}>Break-even antall</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)',
+                          color: (arrangement.participant_count || 0) >= breakEvenParticipants ? 'var(--green)' : 'var(--yellow)' }}>
+                          {breakEvenParticipants}
+                        </td>
+                      </tr>
+                    )}
+                    {projectedRevenue && (
+                      <tr>
+                        <td style={{ padding: '6px 0', fontWeight: 600 }}>Forventet resultat</td>
+                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600,
+                          color: projectedRevenue - totalExpenses >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          {fmt(projectedRevenue - totalExpenses)}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
@@ -314,7 +560,7 @@ export default function ArrangementDetail() {
                 <tr>
                   <th>Dato</th><th>Beskrivelse</th><th>Leverandør</th><th>Avdeling</th>
                   <th>Hvem</th><th>Metode</th><th className="text-right">Beløp</th>
-                  <th>Status</th>{isKasserer && <th></th>}
+                  <th>Status</th>{isKasserer && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -324,6 +570,7 @@ export default function ArrangementDetail() {
                     <td>
                       {e.description}
                       {e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}
+                      {e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
                     </td>
                     <td style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
                     <td><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
@@ -338,7 +585,9 @@ export default function ArrangementDetail() {
                     {isKasserer && (
                       <td>
                         <div className="flex gap-8">
-                          <button className="btn btn-sm btn-secondary" onClick={() => { setEditExpense(e); setShowExpenseModal(true) }}>✎</button>
+                          {!e.transaction_id && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => { setEditExpense(e); setShowExpenseModal(true) }}>✎</button>
+                          )}
                           <button className="btn btn-sm btn-secondary" onClick={() => markReimbursed(e)}>
                             {e.reimbursed ? '↩' : '✓'}
                           </button>
@@ -379,7 +628,10 @@ export default function ArrangementDetail() {
                   {revenues.map(r => (
                     <tr key={r.id}>
                       <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
-                      <td>{r.description}</td>
+                      <td>
+                        {r.description}
+                        {r.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}
+                      </td>
                       <td><span className="badge badge-inntekt">{r.source}</span></td>
                       <td style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
                       <td className="text-right amount-positive">{fmt(r.amount)}</td>
@@ -426,71 +678,56 @@ export default function ArrangementDetail() {
       {activeTab === 'transaksjoner' && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div className="card-title" style={{ marginBottom: 0 }}>
-              Banktransaksjoner ({linkedTx.length})
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Transaksjoner koblet til dette arrangementet via kategori i transaksjonsregisteret
-            </div>
+            <div className="card-title" style={{ marginBottom: 0 }}>Banktransaksjoner ({linkedTx.length})</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Godkjente transaksjoner synkes automatisk til Utgifter/Inntekter</div>
           </div>
           {linkedTx.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-text">
-                Ingen banktransaksjoner er koblet til dette arrangementet ennå.<br />
-                Koble dem ved å velge en arrangement-kategori og dette arrangementet i Transaksjoner.
+                Ingen banktransaksjoner koblet ennå.<br />
+                Velg en arrangement-kategori og dette arrangementet i Transaksjoner-siden.
               </div>
             </div>
           ) : (
-            <>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Dato</th>
-                      <th>Beskrivelse</th>
-                      <th>Kategori</th>
-                      <th>Type</th>
-                      <th className="text-right">Beløp</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linkedTx.map(t => (
-                      <tr key={t.id}>
-                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
-                        <td>{t.description}</td>
-                        <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                        <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                        <td className="text-right">
-                          <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                            {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                            {t.approved ? 'Godkjent' : 'Venter'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={4} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-                        NETTO (inntekt − utgift)
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Dato</th><th>Beskrivelse</th><th>Kategori</th><th>Type</th><th className="text-right">Beløp</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {linkedTx.map(t => (
+                    <tr key={t.id}>
+                      <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.date}</td>
+                      <td>{t.description}</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                      <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                      <td className="text-right">
+                        <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+                          {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+                        </span>
                       </td>
-                      <td className="text-right" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                        {(() => {
-                          const net = linkedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
-                          return <span className={net >= 0 ? 'amount-positive' : 'amount-negative'}>{fmt(net)}</span>
-                        })()}
+                      <td>
+                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                          {t.approved ? 'Synket ✓' : 'Venter godkjenning'}
+                        </span>
                       </td>
-                      <td />
                     </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>NETTO</td>
+                    <td className="text-right" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                      {(() => {
+                        const net = linkedTx.reduce((s, t) => s + (t.type === 'inntekt' ? Number(t.amount) : -Number(t.amount)), 0)
+                        return <span className={net >= 0 ? 'amount-positive' : 'amount-negative'}>{fmt(net)}</span>
+                      })()}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -508,7 +745,7 @@ export default function ArrangementDetail() {
             ) : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Person</th><th>Beskrivelse</th><th>Avdeling</th><th>Metode</th><th className="text-right">Beløp</th>{isKasserer && <th></th>}</tr></thead>
+                  <thead><tr><th>Person</th><th>Beskrivelse</th><th>Avdeling</th><th>Metode</th><th className="text-right">Beløp</th>{isKasserer && <th />}</tr></thead>
                   <tbody>
                     {expenses.filter(e => !e.reimbursed).map(e => (
                       <tr key={e.id}>
@@ -534,13 +771,11 @@ export default function ArrangementDetail() {
               </div>
             )}
           </div>
-
-          {/* Gruppert per person */}
           <div className="card">
             <div className="card-title">Per person – total utestående</div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Person</th><th className="text-right">Antall poster</th><th className="text-right">Totalt</th></tr></thead>
+                <thead><tr><th>Person</th><th className="text-right">Poster</th><th className="text-right">Totalt</th></tr></thead>
                 <tbody>
                   {Object.entries(
                     expenses.filter(e => !e.reimbursed).reduce((acc, e) => {
