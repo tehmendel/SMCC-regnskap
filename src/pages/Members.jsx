@@ -291,14 +291,18 @@ export default function Members() {
     const linkedIds = new Set(allPayments.map(p => p.transaction_id).filter(Boolean))
 
     const allTx = tRes.data || []
-    setUnmatched(allTx.filter(t => !allLinkedIds.has(t.id) && !t.membership_dismissed))
+    const unmatchedTx = allTx.filter(t => !allLinkedIds.has(t.id) && !t.membership_dismissed)
+    setUnmatched(unmatchedTx)
     setDismissed(allTx.filter(t => !allLinkedIds.has(t.id) && t.membership_dismissed))
 
-    setMatchSuggestions(prev => {
-      const cleaned = { ...prev }
-      for (const id of allLinkedIds) delete cleaned[id]
-      return cleaned
-    })
+    // Re-compute all suggestions with fresh boosts and history
+    const activeMems = (mRes.data || []).filter(m => m.active)
+    const newSuggestions = {}
+    for (const t of unmatchedTx) {
+      const match = getBestMatch(t, activeMems, histMap, boostsMap)
+      if (match) newSuggestions[t.id] = match
+    }
+    setMatchSuggestions(newSuggestions)
     setLoading(false)
   }
 
