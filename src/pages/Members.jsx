@@ -212,17 +212,25 @@ export default function Members() {
 
   async function load() {
     setLoading(true)
+
+    // Fetch membership category IDs first (one extra round trip, keeps code clean)
+    const { data: mCats } = await supabase
+      .from('categories')
+      .select('id, name')
+      .in('name', ['Medlemskontingent', 'Medlemsagift reisekassen'])
+    const membershipCatIds = (mCats || []).map(c => c.id)
+
     const [mRes, pRes, tRes, hRes, rRes] = await Promise.all([
       supabase.from('members').select('*').order('full_name'),
       supabase.from('member_payments').select('*').eq('year', year),
+      // All membership-category transactions, all years — category determines membership, not amount
       supabase.from('transactions')
-        .select('id, date, description, amount, approved')
+        .select('id, date, description, amount, approved, category_id')
         .eq('type', 'inntekt')
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`)
+        .in('category_id', membershipCatIds.length ? membershipCatIds : ['00000000-0000-0000-0000-000000000000'])
         .order('date', { ascending: false }),
       supabase.from('member_payments')
-        .select('member_id, transactions!transaction_id(description)')
+        .select('member_id, transaction_id, transactions!transaction_id(description)')
         .not('transaction_id', 'is', null),
       supabase.from('fee_rates')
         .select('*').eq('fee_type', 'membership')
@@ -246,10 +254,12 @@ export default function Members() {
     setMembers(mRes.data || [])
     setPayments(allPayments)
 
-    // Known fee amounts across all rates (monthly + yearly)
-    const knownAmounts = new Set(rates.flatMap(r => [r.amount_monthly, r.amount_yearly].filter(Boolean)).map(Number))
+    // All linked transaction IDs across ALL years (hRes spans all time)
+    const allLinkedIds = new Set((hRes.data || []).map(p => p.transaction_id).filter(Boolean))
+    // Current-year linked IDs (for setMatchSuggestions cleanup)
     const linkedIds = new Set(allPayments.map(p => p.transaction_id).filter(Boolean))
-    setUnmatched((tRes.data || []).filter(t => !linkedIds.has(t.id) && knownAmounts.has(Number(t.amount))))
+
+    setUnmatched((tRes.data || []).filter(t => !allLinkedIds.has(t.id)))
 
     setMatchSuggestions(prev => {
       const cleaned = { ...prev }
@@ -528,7 +538,7 @@ export default function Members() {
             <div style={{ fontWeight: 500 }}>
               Ufordelte innbetalinger
               <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} som matcher kjente avgiftssatser
+                {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} med kategori «Medlemskontingent» — ikke koblet til noe medlem
               </span>
             </div>
             {isKasserer && (
@@ -562,7 +572,7 @@ export default function Members() {
                 <thead>
                   <tr>
                     <th>Dato</th><th>Beskrivelse</th>
-                    <th className="text-right">Beløp</th><th>Status</th>
+                    <th className="text-right">Beløp</th><th>Sats</th><th>Status</th>
                     <th>Forslag</th>
                     {isKasserer && <th style={{ width: 180 }} />}
                   </tr>
@@ -572,9 +582,28 @@ export default function Members() {
                     const suggestion = matchSuggestions[t.id]
                     return (
                       <tr key={t.id}>
-                        <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{t.date}</td>
+                        <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {t.date}
+                          {t.date.slice(0, 4) !== String(year) && (
+                            <span style={{ marginLeft: 6, background: 'var(--graphite)', color: 'var(--yellow)', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                              {t.date.slice(0, 4)}
+                            </span>
+                          )}
+                        </td>
                         <td style={{ fontSize: 13 }}>{t.description}</td>
                         <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                        <td>
+                          {(() => {
+                            const rate = feeRates.find(r => r.amount_monthly === Number(t.amount) || r.amount_yearly === Number(t.amount))
+                            const isExact = !!rate
+                            const isAbove = !isExact && feeRates.some(r => Number(t.amount) > r.amount_monthly && Number(t.amount) < r.amount_yearly * 2)
+                            return (
+                              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: isExact ? 'var(--green)' : 'var(--yellow)' }}>
+                                {isExact ? `✓ ${rate.amount_monthly}/mnd` : `± avvik`}
+                              </span>
+                            )
+                          })()}
+                        </td>
                         <td>
                           <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
                             {t.approved ? 'Godkjent' : 'Venter'}
