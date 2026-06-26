@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -13,6 +13,8 @@ import PeriodAccounts from './pages/period/PeriodAccounts'
 import Vendors from './pages/Vendors'
 import BankImport from './pages/BankImport'
 import Members from './pages/Members'
+import MemberRegistry from './pages/MemberRegistry'
+import Reisekasse from './pages/Reisekasse'
 
 function ProtectedRoute({ children, requireAdmin }) {
   const { user, profile, loading, isAdmin } = useAuth()
@@ -39,16 +41,18 @@ function Sidebar() {
       <NavItem to="/" icon="▣" label="Dashboard" end />
       <NavItem to="/perioderegnskap" icon="≡" label="Perioderegnskap" />
       <NavItem to="/aarsregnskap" icon="◫" label="Årsregnskap" />
+      <NavItem to="/medlemsregister" icon="◉" label="Medlemsregister" />
 
       <div className="sidebar-section">Arrangementer</div>
       <NavItem to="/arrangementer" icon="⬡" label="Alle arrangementer" />
 
       <div className="sidebar-section">Regnskap</div>
-      <NavItem to="/medlemmer" icon="◉" label="Medlemmer" />
       <NavItem to="/transaksjoner" icon="↕" label="Transaksjoner" />
       <NavItem to="/kategorier" icon="◈" label="Kategorier" />
       <NavItem to="/leverandorer" icon="◎" label="Leverandører" />
       <NavItem to="/bankimport" icon="↥" label="Importer utskrift" />
+      <NavItem to="/medlemsavgift" icon="◈" label="Medlemsavgift" />
+      <NavItem to="/reisekassen" icon="✈" label="Reisekassen" />
 
       {isAdmin && (
         <>
@@ -92,7 +96,11 @@ function AppShell() {
           <Route path="/kategorier" element={<Categories />} />
           <Route path="/leverandorer" element={<Vendors />} />
           <Route path="/bankimport" element={<BankImport />} />
-          <Route path="/medlemmer" element={<Members />} />
+          <Route path="/medlemsregister" element={<MemberRegistry />} />
+          <Route path="/medlemsavgift" element={<Members />} />
+          <Route path="/reisekassen" element={<Reisekasse />} />
+          {/* Backward compat redirect */}
+          <Route path="/medlemmer" element={<Navigate to="/medlemsavgift" replace />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
         </Routes>

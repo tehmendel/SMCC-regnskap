@@ -3,37 +3,30 @@ import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Des']
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des']
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
 
-// Normalize text for matching: lowercase, replace Norwegian chars, strip punctuation
 function normTx(s) {
   return (s || '')
     .toLowerCase()
-    .replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a')
-    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+    .replace(/æ/g,'ae').replace(/ø/g,'o').replace(/å/g,'a')
+    .replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u')
+    .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()
 }
 
 function scoreMatch(desc, member, hist) {
   const d = normTx(desc)
   const parts = normTx(member.full_name).split(' ').filter(p => p.length > 1)
   if (!parts.length) return 0
-
   const hits = parts.filter(p => d.includes(p)).length
   const nameScore = hits / parts.length
-
-  // Historical boost: if past linked transactions for this member share the same description pattern
   const memberHist = hist[member.id] || []
   const histConfirmed = memberHist.some(h => {
     const hd = normTx(h)
     const hHits = parts.filter(p => hd.includes(p)).length
     return hHits / parts.length >= 0.5
   })
-
   return Math.min(nameScore + (histConfirmed && nameScore > 0.5 ? 0.08 : 0), 1.0)
 }
 
@@ -59,92 +52,74 @@ function ConfidenceBar({ score }) {
   )
 }
 
-function MemberModal({ member, onClose, onSaved }) {
-  const [form, setForm] = useState(member || {
-    full_name: '', email: '', phone: '',
-    payment_type: 'monthly', join_date: '', end_date: '', active: true, notes: '',
-  })
+function getRateForMonth(feeRates, year, month) {
+  const monthStart = `${year}-${String(month).padStart(2,'0')}-01`
+  const rates = feeRates
+    .filter(r => r.fee_type === 'membership' && r.effective_from <= monthStart)
+    .sort((a, b) => b.effective_from.localeCompare(a.effective_from))
+  return rates[0] || { amount_monthly: 300, amount_yearly: 3600 }
+}
+
+function FeeRateModal({ currentRate, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [amount, setAmount] = useState(currentRate?.amount_monthly || '300')
+  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().split('T')[0])
+  const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   async function save(e) {
     e.preventDefault()
     setSaving(true)
-    const payload = {
-      ...form,
-      join_date: form.join_date || null,
-      end_date: form.end_date || null,
-    }
-    const res = member
-      ? await supabase.from('members').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', member.id)
-      : await supabase.from('members').insert(payload)
-    if (res.error) setError(res.error.message)
+    const monthly = parseFloat(amount)
+    const { error } = await supabase.from('fee_rates').insert({
+      fee_type: 'membership',
+      amount_monthly: monthly,
+      amount_yearly: monthly * 12,
+      effective_from: effectiveFrom,
+      notes: notes || null,
+      created_by: profile.id,
+    })
+    if (error) setError(error.message)
     else { onSaved(); onClose() }
     setSaving(false)
   }
 
+  const monthly = parseFloat(amount) || 0
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-title">{member ? 'Rediger medlem' : 'Nytt medlem'}</div>
+      <div className="modal" style={{ maxWidth: 420 }}>
+        <div className="modal-title">Endre medlemsavgift</div>
         {error && <div className="alert alert-error">{error}</div>}
         <form onSubmit={save}>
           <div className="form-group">
-            <label className="form-label">Fullt navn</label>
-            <input className="form-input" value={form.full_name}
-              onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} required />
+            <label className="form-label">Ny månedlig avgift (kr)</label>
+            <input className="form-input" type="number" min="1" step="1" value={amount}
+              onChange={e => setAmount(e.target.value)} required />
+            {monthly > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                Årsbetaler: {(monthly * 12).toLocaleString('nb-NO')} kr/år
+              </div>
+            )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">E-post</label>
-              <input className="form-input" type="email" value={form.email || ''}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Telefon</label>
-              <input className="form-input" value={form.phone || ''}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Betalingsform</label>
-              <select className="form-select" value={form.payment_type}
-                onChange={e => setForm(f => ({ ...f, payment_type: e.target.value }))}>
-                <option value="monthly">Månedlig (300 kr)</option>
-                <option value="yearly">Årlig (3 600 kr)</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Innmeldingsdato</label>
-              <input className="form-input" type="date" value={form.join_date || ''}
-                onChange={e => setForm(f => ({ ...f, join_date: e.target.value }))} />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Utmeldingsdato <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(valgfritt)</span></label>
-              <input className="form-input" type="date" value={form.end_date || ''}
-                onChange={e => setForm(f => ({ ...f, end_date: e.target.value || null }))} />
-            </div>
-            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
-              {form.end_date && (
-                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-                  Vises i statistikk for {new Date(form.end_date).getFullYear()},<br />
-                  ikke i {new Date(form.end_date).getFullYear() + 1} og frem.
-                </div>
-              )}
+          <div className="form-group">
+            <label className="form-label">Gjelder fra dato</label>
+            <input className="form-input" type="date" value={effectiveFrom}
+              onChange={e => setEffectiveFrom(e.target.value)} required
+              min={new Date().toISOString().split('T')[0]} />
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Endringen er ikke tilbakevirkende — gjelder kun nye registreringer fra og med denne datoen.
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">Notater</label>
-            <textarea className="form-textarea" value={form.notes || ''}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+            <label className="form-label">Kommentar (valgfritt)</label>
+            <input className="form-input" value={notes}
+              onChange={e => setNotes(e.target.value)} placeholder="F.eks. vedtak på årsmøte 2025" />
           </div>
           <div className="flex gap-8 mt-16">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Lagrer…' : 'Lagre'}
+              {saving ? 'Lagrer…' : 'Lagre ny sats'}
             </button>
           </div>
         </form>
@@ -164,8 +139,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
     setSaving(true)
     if (!transaction.approved) {
       await supabase.from('transactions').update({
-        approved: true,
-        approved_at: new Date().toISOString(),
+        approved: true, approved_at: new Date().toISOString(),
       }).eq('id', transaction.id)
     }
     await supabase.from('member_payments').insert({
@@ -176,8 +150,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
       payment_date: transaction.date,
       transaction_id: transaction.id,
     })
-    onSaved()
-    onClose()
+    onSaved(); onClose()
   }
 
   return (
@@ -204,7 +177,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
         )}
         {selected?.payment_type === 'yearly' && (
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-            Årsbetalingen vil dekke alle måneder i {year}.
+            Årsbetalingen dekker alle måneder i {year}.
           </div>
         )}
         <div className="flex gap-8">
@@ -223,14 +196,15 @@ export default function Members() {
   const [year, setYear] = useState(CURRENT_YEAR)
   const [members, setMembers] = useState([])
   const [payments, setPayments] = useState([])
+  const [feeRates, setFeeRates] = useState([])
   const [unmatched, setUnmatched] = useState([])
   const [history, setHistory] = useState({})
   const [matchSuggestions, setMatchSuggestions] = useState({})
   const [autoMatching, setAutoMatching] = useState(false)
   const [autoLog, setAutoLog] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editMember, setEditMember] = useState(null)
+  const [showFeeModal, setShowFeeModal] = useState(false)
+  const [showFeeHistory, setShowFeeHistory] = useState(false)
   const [linkTx, setLinkTx] = useState(null)
   const [linkSuggestedId, setLinkSuggestedId] = useState('')
 
@@ -238,7 +212,7 @@ export default function Members() {
 
   async function load() {
     setLoading(true)
-    const [mRes, pRes, tRes, hRes] = await Promise.all([
+    const [mRes, pRes, tRes, hRes, rRes] = await Promise.all([
       supabase.from('members').select('*').order('full_name'),
       supabase.from('member_payments').select('*').eq('year', year),
       supabase.from('transactions')
@@ -250,9 +224,14 @@ export default function Members() {
       supabase.from('member_payments')
         .select('member_id, transactions!transaction_id(description)')
         .not('transaction_id', 'is', null),
+      supabase.from('fee_rates')
+        .select('*').eq('fee_type', 'membership')
+        .order('effective_from', { ascending: false }),
     ])
 
-    // Build history map: memberId → [description, ...]
+    const rates = rRes.data || []
+    setFeeRates(rates)
+
     const histMap = {}
     for (const p of hRes.data || []) {
       const desc = p.transactions?.description
@@ -267,45 +246,51 @@ export default function Members() {
     setMembers(mRes.data || [])
     setPayments(allPayments)
 
+    // Known fee amounts across all rates (monthly + yearly)
+    const knownAmounts = new Set(rates.flatMap(r => [r.amount_monthly, r.amount_yearly].filter(Boolean)).map(Number))
     const linkedIds = new Set(allPayments.map(p => p.transaction_id).filter(Boolean))
-    const newUnmatched = (tRes.data || []).filter(t => !linkedIds.has(t.id) && (t.amount == 300 || t.amount == 3600))
-    setUnmatched(newUnmatched)
+    setUnmatched((tRes.data || []).filter(t => !linkedIds.has(t.id) && knownAmounts.has(Number(t.amount))))
 
-    // Remove stale suggestions for now-linked transactions
     setMatchSuggestions(prev => {
       const cleaned = { ...prev }
       for (const id of linkedIds) delete cleaned[id]
       return cleaned
     })
-
     setLoading(false)
   }
+
+  const activeMembers = members.filter(m => {
+    if (!m.active) return false
+    if (!m.end_date) return true
+    return m.end_date >= `${year}-01-01`
+  })
 
   async function autoMatch() {
     if (!activeMembers.length || !unmatched.length) return
     setAutoMatching(true)
     setAutoLog([])
-
     const newSuggestions = {}
     const autoLinked = []
 
     for (const tx of unmatched) {
       const match = getBestMatch(tx, activeMembers, history)
       if (!match) continue
-
       if (match.score >= 0.9) {
         if (!tx.approved) {
           await supabase.from('transactions').update({
-            approved: true,
-            approved_at: new Date().toISOString(),
+            approved: true, approved_at: new Date().toISOString(),
           }).eq('id', tx.id)
         }
+        const txDate = tx.date
+        const txMonth = new Date(txDate).getMonth() + 1
+        const rate = getRateForMonth(feeRates, year, txMonth)
+        const amount = match.member.payment_type === 'yearly' ? (rate.amount_yearly || rate.amount_monthly * 12) : rate.amount_monthly
         const { error } = await supabase.from('member_payments').insert({
           member_id: match.member.id,
           year,
-          month: match.member.payment_type === 'yearly' ? null : new Date(tx.date).getMonth() + 1,
-          amount: tx.amount,
-          payment_date: tx.date,
+          month: match.member.payment_type === 'yearly' ? null : txMonth,
+          amount,
+          payment_date: txDate,
           transaction_id: tx.id,
         })
         if (!error) autoLinked.push({ tx, member: match.member, score: match.score })
@@ -314,24 +299,14 @@ export default function Members() {
         newSuggestions[tx.id] = match
       }
     }
-
     setMatchSuggestions(newSuggestions)
     if (autoLinked.length > 0) setAutoLog(autoLinked)
     await load()
     setAutoMatching(false)
   }
 
-  function openLinkModal(tx, suggestedId = '') {
-    setLinkTx(tx)
-    setLinkSuggestedId(suggestedId)
-  }
-
   function getPayment(memberId, month) {
     return payments.find(p => p.member_id === memberId && (p.month === month || p.month === null))
-  }
-
-  function isPaid(memberId, month) {
-    return !!getPayment(memberId, month)
   }
 
   async function toggleMonth(member, month) {
@@ -339,12 +314,16 @@ export default function Members() {
     if (payment) {
       await supabase.from('member_payments').delete().eq('id', payment.id)
     } else {
+      const rate = getRateForMonth(feeRates, year, month)
+      const amount = member.payment_type === 'yearly'
+        ? (rate.amount_yearly || rate.amount_monthly * 12)
+        : rate.amount_monthly
       await supabase.from('member_payments').insert({
         member_id: member.id,
         year,
         month: member.payment_type === 'yearly' ? null : month,
-        amount: member.payment_type === 'yearly' ? 3600 : 300,
-        payment_date: `${year}-${String(month).padStart(2, '0')}-15`,
+        amount,
+        payment_date: `${year}-${String(month).padStart(2,'0')}-15`,
       })
     }
     load()
@@ -354,29 +333,36 @@ export default function Members() {
     return payments.filter(p => p.member_id === memberId).reduce((s, p) => s + Number(p.amount), 0)
   }
 
-  async function deleteMember(id) {
-    if (!confirm('Slett dette medlemmet og alle tilknyttede betalinger?')) return
-    await supabase.from('members').delete().eq('id', id)
-    load()
+  function expectedForMember(member) {
+    if (member.payment_type === 'yearly') {
+      const r = getRateForMonth(feeRates, year, 1)
+      return r.amount_yearly || r.amount_monthly * 12
+    }
+    let total = 0
+    for (let m = 1; m <= 12; m++) {
+      const monthStr = `${year}-${String(m).padStart(2,'0')}-01`
+      if (member.end_date && monthStr > member.end_date) break
+      if (member.join_date) {
+        const joinYM = member.join_date.slice(0, 7)
+        if (monthStr.slice(0, 7) < joinYM) continue
+      }
+      total += getRateForMonth(feeRates, year, m).amount_monthly
+    }
+    return total
   }
 
-  // Active for selected year: no end_date, or end_date is within or after the selected year
-  const activeMembers = members.filter(m => {
-    if (!m.active) return false
-    if (!m.end_date) return true
-    return m.end_date >= `${year}-01-01`
-  })
-  const totalExpected = activeMembers.length * 3600
+  const currentRate = feeRates[0]
+  const totalExpected = activeMembers.reduce((s, m) => s + expectedForMember(m), 0)
   const totalReceived = activeMembers.reduce((s, m) => s + totalPaid(m.id), 0)
 
   if (loading) return <div className="text-muted">Laster…</div>
 
   return (
     <div>
-      {showModal && (
-        <MemberModal
-          member={editMember}
-          onClose={() => { setShowModal(false); setEditMember(null) }}
+      {showFeeModal && (
+        <FeeRateModal
+          currentRate={currentRate}
+          onClose={() => setShowFeeModal(false)}
           onSaved={load}
         />
       )}
@@ -393,28 +379,61 @@ export default function Members() {
 
       <div className="page-header">
         <div>
-          <div className="page-title">Medlemsoversikt</div>
-          <div className="page-sub">
-            {activeMembers.length} aktive medlemmer ·{' '}
-            <span style={{ color: totalReceived >= totalExpected ? 'var(--green)' : 'var(--yellow)' }}>
-              {fmt(totalReceived)}
+          <div className="page-title">Medlemsavgift</div>
+          <div className="page-sub" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span>
+              {activeMembers.length} aktive ·{' '}
+              <span style={{ color: totalReceived >= totalExpected ? 'var(--green)' : 'var(--yellow)' }}>
+                {fmt(totalReceived)}
+              </span>{' '}/ {fmt(totalExpected)} innbetalt
             </span>
-            {' '}/ {fmt(totalExpected)} innbetalt
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Sats: {fmt(currentRate?.amount_monthly || 300)}/mnd · {fmt(currentRate?.amount_yearly || 3600)}/år
+            </span>
+            {isKasserer && (
+              <button className="btn btn-sm btn-secondary" onClick={() => setShowFeeModal(true)}>
+                Endre avgift
+              </button>
+            )}
+            {feeRates.length > 1 && (
+              <button className="btn btn-sm btn-secondary" onClick={() => setShowFeeHistory(v => !v)}>
+                {showFeeHistory ? 'Skjul' : 'Vis'} historikk
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex gap-8">
+        <div>
           <select className="form-select" value={year} onChange={e => setYear(parseInt(e.target.value))}>
             {[CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1].map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
-          {isKasserer && (
-            <button className="btn btn-primary" onClick={() => { setEditMember(null); setShowModal(true) }}>
-              + Nytt medlem
-            </button>
-          )}
         </div>
       </div>
+
+      {/* Fee history */}
+      {showFeeHistory && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Avgiftshistorikk</div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Gjelder fra</th><th className="text-right">Kr/mnd</th><th className="text-right">Kr/år</th><th>Kommentar</th></tr>
+              </thead>
+              <tbody>
+                {feeRates.map(r => (
+                  <tr key={r.id}>
+                    <td className="text-mono" style={{ fontSize: 12 }}>{r.effective_from}</td>
+                    <td className="text-right" style={{ fontFamily: 'var(--font-mono)' }}>{fmt(r.amount_monthly)}</td>
+                    <td className="text-right" style={{ fontFamily: 'var(--font-mono)' }}>{r.amount_yearly ? fmt(r.amount_yearly) : '—'}</td>
+                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{r.notes || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Payment grid */}
       <div className="card" style={{ marginBottom: 24, overflowX: 'auto' }}>
@@ -428,19 +447,18 @@ export default function Members() {
               <th style={{ textAlign: 'right', padding: '10px 12px', minWidth: 130, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', fontSize: 11 }}>
                 Innbetalt / Forventet
               </th>
-              {isKasserer && <th style={{ width: 64, borderBottom: '1px solid var(--border)' }} />}
             </tr>
           </thead>
           <tbody>
             {activeMembers.length === 0 ? (
               <tr>
-                <td colSpan={15} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-                  Ingen aktive medlemmer. Klikk "+ Nytt medlem" for å legge til.
+                <td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+                  Ingen aktive medlemmer. Gå til Medlemsregisteret for å legge til.
                 </td>
               </tr>
             ) : activeMembers.map(member => {
               const paid = totalPaid(member.id)
-              const expected = 3600
+              const expected = expectedForMember(member)
               const hasYearlyPayment = payments.some(p => p.member_id === member.id && p.month === null)
               return (
                 <tr key={member.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -449,34 +467,26 @@ export default function Members() {
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>
                       {member.payment_type === 'yearly' ? 'Årsbetaler' : 'Månedsbetaler'}
                       {member.end_date && (
-                        <span style={{ color: 'var(--red)', marginLeft: 4 }}>
-                          · sluttet {member.end_date}
-                        </span>
+                        <span style={{ color: 'var(--red)', marginLeft: 4 }}>· sluttet {member.end_date}</span>
                       )}
                     </div>
                   </td>
                   {MONTH_NAMES.map((_, i) => {
                     const month = i + 1
-                    const paidThisMonth = isPaid(member.id, month)
+                    const payment = getPayment(member.id, month)
                     const isPast = year < CURRENT_YEAR || (year === CURRENT_YEAR && month <= CURRENT_MONTH)
-                    const monthStr = `${year}-${String(month).padStart(2, '0')}-01`
+                    const monthStr = `${year}-${String(month).padStart(2,'0')}-01`
                     const afterEnd = member.end_date && monthStr > member.end_date
+                    const rate = getRateForMonth(feeRates, year, month)
 
-                    let bg = 'transparent'
-                    let color = 'var(--border)'
-                    let label = '—'
-
+                    let bg = 'transparent', color = 'var(--border)', label = '—'
                     if (afterEnd) {
-                      bg = 'var(--surface)'
-                      color = 'var(--graphite)'
-                      label = ''
-                    } else if (paidThisMonth) {
-                      bg = 'var(--green)'
-                      color = '#fff'
-                      label = hasYearlyPayment && member.payment_type === 'yearly' ? '✓' : '300'
+                      bg = 'var(--surface)'; color = 'var(--graphite)'; label = ''
+                    } else if (payment) {
+                      bg = 'var(--green)'; color = '#fff'
+                      label = hasYearlyPayment && member.payment_type === 'yearly' ? '✓' : String(Math.round(payment.amount))
                     } else if (isPast) {
-                      bg = '#c0392b22'
-                      color = 'var(--red)'
+                      bg = '#c0392b22'; color = 'var(--red)'
                     } else {
                       color = 'var(--graphite)'
                     }
@@ -484,12 +494,12 @@ export default function Members() {
                     return (
                       <td key={month} style={{ padding: 3, textAlign: 'center' }}>
                         <div
-                          title={isKasserer && !afterEnd ? 'Klikk for å registrere / fjerne betaling' : ''}
+                          title={isKasserer && !afterEnd ? `${rate.amount_monthly} kr — klikk for å registrere` : ''}
                           style={{
                             borderRadius: 4, padding: '5px 2px', fontSize: 11,
                             fontFamily: 'var(--font-mono)', background: bg, color,
                             cursor: isKasserer && !afterEnd ? 'pointer' : 'default',
-                            userSelect: 'none', fontWeight: paidThisMonth ? 600 : 400,
+                            userSelect: 'none', fontWeight: payment ? 600 : 400,
                           }}
                           onClick={() => isKasserer && !afterEnd && toggleMonth(member, month)}
                         >
@@ -504,17 +514,6 @@ export default function Members() {
                     </span>
                     <span style={{ color: 'var(--muted)' }}> / {expected.toLocaleString('nb-NO')}</span>
                   </td>
-                  {isKasserer && (
-                    <td style={{ padding: '4px 8px' }}>
-                      <div className="flex gap-8">
-                        <button className="btn btn-sm btn-secondary"
-                          onClick={() => { setEditMember(member); setShowModal(true) }}>✎</button>
-                        {isAdmin && (
-                          <button className="btn btn-sm btn-danger" onClick={() => deleteMember(member.id)}>✕</button>
-                        )}
-                      </div>
-                    </td>
-                  )}
                 </tr>
               )
             })}
@@ -529,22 +528,16 @@ export default function Members() {
             <div style={{ fontWeight: 500 }}>
               Ufordelte innbetalinger
               <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                {unmatched.length} transaksjoner på 300 eller 3 600 kr
+                {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} som matcher kjente avgiftssatser
               </span>
             </div>
             {isKasserer && (
-              <button
-                className="btn btn-sm btn-primary"
-                disabled={autoMatching}
-                onClick={autoMatch}
-                style={{ marginLeft: 'auto' }}
-              >
+              <button className="btn btn-sm btn-primary" disabled={autoMatching} onClick={autoMatch} style={{ marginLeft: 'auto' }}>
                 {autoMatching ? 'Matcher…' : 'Auto-koble alle'}
               </button>
             )}
           </div>
 
-          {/* Auto-link result log */}
           {autoLog.length > 0 && (
             <div style={{ marginBottom: 12, padding: '10px 14px', background: '#1a3a1a', border: '1px solid var(--green)', borderRadius: 6, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -568,10 +561,8 @@ export default function Members() {
               <table>
                 <thead>
                   <tr>
-                    <th>Dato</th>
-                    <th>Beskrivelse</th>
-                    <th className="text-right">Beløp</th>
-                    <th>Status</th>
+                    <th>Dato</th><th>Beskrivelse</th>
+                    <th className="text-right">Beløp</th><th>Status</th>
                     <th>Forslag</th>
                     {isKasserer && <th style={{ width: 180 }} />}
                   </tr>
@@ -605,17 +596,13 @@ export default function Members() {
                               {suggestion ? (
                                 <>
                                   <button className="btn btn-sm btn-primary"
-                                    onClick={() => openLinkModal(t, suggestion.member.id)}>
-                                    Bekreft
-                                  </button>
+                                    onClick={() => { setLinkTx(t); setLinkSuggestedId(suggestion.member.id) }}>Bekreft</button>
                                   <button className="btn btn-sm btn-secondary"
-                                    onClick={() => openLinkModal(t, '')}>
-                                    Annet
-                                  </button>
+                                    onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>Annet</button>
                                 </>
                               ) : (
                                 <button className="btn btn-sm btn-secondary"
-                                  onClick={() => openLinkModal(t, '')}>
+                                  onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>
                                   {t.approved ? 'Koble til' : 'Godkjenn og koble'}
                                 </button>
                               )}
