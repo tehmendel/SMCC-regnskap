@@ -147,6 +147,8 @@ function FeeRateModal({ currentRate, onClose, onSaved }) {
 
 function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemberId = '' }) {
   const [memberId, setMemberId] = useState(suggestedMemberId)
+  // Always derive year and month from the transaction's own date
+  const txYear = new Date(transaction.date).getFullYear()
   const [month, setMonth] = useState(new Date(transaction.date).getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const selected = members.find(m => m.id === memberId)
@@ -161,7 +163,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
     }
     await supabase.from('member_payments').insert({
       member_id: memberId,
-      year,
+      year: txYear,
       month: selected?.payment_type === 'yearly' ? null : month,
       amount: transaction.amount,
       payment_date: transaction.date,
