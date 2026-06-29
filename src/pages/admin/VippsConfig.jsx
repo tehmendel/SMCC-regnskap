@@ -43,6 +43,8 @@ export default function VippsConfig() {
   const [addingMsn, setAddingMsn] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [confirmSwitch, setConfirmSwitch] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -90,6 +92,16 @@ export default function VippsConfig() {
     else { setSaveMsg('Lagret!'); load() }
     setSaving(false)
     setTimeout(() => setSaveMsg(''), 3000)
+  }
+
+  async function testConnection() {
+    setTesting(true)
+    setTestResult(null)
+    const { data, error } = await supabase.functions.invoke('vipps-test-connection', {
+      body: { environment: editEnv },
+    })
+    setTestResult(error ? { ok: false, error: error.message } : data)
+    setTesting(false)
   }
 
   async function doSwitchEnv(target) {
@@ -236,9 +248,12 @@ export default function VippsConfig() {
                   Dersom du kun har én nøkkel, legg inn samme verdi i alle tre feltene.
                 </div>
 
-                <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                <div className="flex gap-8" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
                   <button type="submit" className="btn btn-primary" disabled={saving}>
                     {saving ? 'Lagrer…' : `Lagre ${ENV_LABEL[editEnv]}-legitimasjon`}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={testConnection} disabled={testing}>
+                    {testing ? '⟳ Tester…' : '⚡ Test tilkobling'}
                   </button>
                   {saveMsg && (
                     <span style={{ fontSize: 12, color: saveMsg.startsWith('Feil') ? 'var(--red)' : 'var(--green)' }}>
@@ -247,6 +262,38 @@ export default function VippsConfig() {
                   )}
                 </div>
               </form>
+
+              {testResult && (
+                <div style={{
+                  marginTop: 16, padding: 14, borderRadius: 8,
+                  background: testResult.ok ? '#0d2218' : '#2a0d0d',
+                  border: `1px solid ${testResult.ok ? 'var(--green)' : 'var(--red)'}`,
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: testResult.ok ? 'var(--green)' : 'var(--red)', marginBottom: testResult.ok ? 8 : 4 }}>
+                    {testResult.ok ? '✓ Tilkobling vellykket' : '✗ Tilkobling mislyktes'}
+                  </div>
+                  {testResult.ok ? (
+                    <div style={{ display: 'flex', gap: 24, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                      <span>Miljø: <strong style={{ color: 'var(--text)' }}>{testResult.environment}</strong></span>
+                      <span>Token-type: <strong style={{ color: 'var(--text)' }}>{testResult.token_type}</strong></span>
+                      <span>Token utløper om: <strong style={{ color: 'var(--text)' }}>{testResult.expires_in_minutes} min</strong></span>
+                      <span>Responstid: <strong style={{ color: 'var(--text)' }}>{testResult.latency_ms} ms</strong></span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--red)' }}>
+                      {testResult.error}
+                      {testResult.detail && (
+                        <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                          {testResult.detail}
+                        </div>
+                      )}
+                      {testResult.status && (
+                        <span style={{ marginLeft: 8, color: 'var(--muted)' }}>HTTP {testResult.status}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ),
         },
