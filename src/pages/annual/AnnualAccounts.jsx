@@ -27,11 +27,11 @@ export default function AnnualAccounts() {
         supabase.from('member_counts').select('*').order('year'),
         // Only unlinked arrangement entries (linked ones already appear in transactions)
         supabase.from('arrangement_expenses')
-          .select('amount, is_estimate, expense_date, arrangements!arrangement_id(year, name)')
+          .select('amount, is_estimate, expense_date, arrangements(year, name)')
           .is('transaction_id', null)
           .eq('is_estimate', false),
         supabase.from('arrangement_revenues')
-          .select('amount, revenue_date, arrangements!arrangement_id(year, name)')
+          .select('amount, revenue_date, arrangements(year, name)')
           .is('transaction_id', null),
       ])
       setBalances(balRes.data || [])
