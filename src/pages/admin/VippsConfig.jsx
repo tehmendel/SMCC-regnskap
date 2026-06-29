@@ -50,7 +50,8 @@ export default function VippsConfig() {
   const [syncLog, setSyncLog] = useState([])
   const [daysBack, setDaysBack] = useState(30)
 
-  useEffect(() => { load(); loadSyncLog() }, [])
+  useEffect(() => { load() }, [])
+  useEffect(() => { loadSyncLog(); setSyncResult(null) }, [editEnv])
 
   async function load() {
     const [cRes, mRes] = await Promise.all([
@@ -102,6 +103,7 @@ export default function VippsConfig() {
     const { data } = await supabase
       .from('vipps_sync_log')
       .select('*')
+      .eq('environment', editEnv)
       .order('started_at', { ascending: false })
       .limit(10)
     setSyncLog(data || [])
@@ -111,7 +113,7 @@ export default function VippsConfig() {
     setSyncing(true)
     setSyncResult(null)
     const { data, error } = await supabase.functions.invoke('vipps-sync', {
-      body: { source: 'manual', days_back: daysBack },
+      body: { source: 'manual', days_back: daysBack, environment: editEnv },
     })
     setSyncResult(error ? { ok: false, error: error.message } : data)
     setSyncing(false)
@@ -425,9 +427,17 @@ export default function VippsConfig() {
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div>
-                  <div className="card-title" style={{ marginBottom: 2 }}>Datasynk</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+                    <div className="card-title" style={{ margin: 0 }}>Datasynk</div>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      background: editEnv === 'prod' ? 'var(--green)' : 'var(--yellow)',
+                      color: editEnv === 'prod' ? '#fff' : '#000',
+                      borderRadius: 6, padding: '2px 7px',
+                    }}>{editEnv === 'prod' ? 'PROD' : 'TEST'}</span>
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Henter transaksjoner fra Vipps for alle aktive betalingssteder
+                    Henter transaksjoner fra Vipps {ENV_LABEL[editEnv]}-miljø for alle aktive betalingssteder
                   </div>
                 </div>
                 <div className="flex gap-8" style={{ alignItems: 'center' }}>
