@@ -10,7 +10,7 @@ const YEARS = [2022, 2023, 2024, 2025, 2026]
 const COLORS = ['#6B7280','#3B82F6','#A855F7','#E85D26','#22C55E']
 
 export default function AnnualAccounts() {
-  const [selectedYear, setSelectedYear] = useState(2025)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [balances, setBalances] = useState([])
   const [transactions, setTransactions] = useState([])
   const [members, setMembers] = useState([])
