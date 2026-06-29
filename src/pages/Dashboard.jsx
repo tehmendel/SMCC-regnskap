@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { CardGrid } from '../components/CardGrid'
 
 function fmt(amount) {
   return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
@@ -48,6 +49,83 @@ export default function Dashboard() {
 
   if (loading) return <div className="text-muted">Laster…</div>
 
+  const cards = [
+    {
+      id: 'stats',
+      content: (
+        <div className="stat-grid">
+          <div className="stat-box">
+            <div className="stat-label">Inntekter</div>
+            <div className="stat-value positive">{fmt(stats.inntekter)}</div>
+          </div>
+          <div className="stat-box">
+            <div className="stat-label">Utgifter</div>
+            <div className="stat-value negative">{fmt(stats.utgifter)}</div>
+          </div>
+          <div className="stat-box">
+            <div className="stat-label">Resultat</div>
+            <div className={`stat-value ${stats.resultat >= 0 ? 'positive' : 'negative'}`}>
+              {fmt(stats.resultat)}
+            </div>
+          </div>
+          <div className="stat-box">
+            <div className="stat-label">Transaksjoner</div>
+            <div className="stat-value">{stats.antall}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'recent',
+      content: (
+        <div className="card">
+          <div className="card-title">Siste transaksjoner</div>
+          {recent.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">📋</div>
+              <div className="empty-state-text">Ingen transaksjoner registrert ennå</div>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dato</th>
+                    <th>Beskrivelse</th>
+                    <th>Kategori</th>
+                    <th>Type</th>
+                    <th className="text-right">Beløp</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((t, i) => (
+                    <tr key={i}>
+                      <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
+                      <td>{t.description}</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
+                      <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
+                      <td className="text-right">
+                        <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
+                          {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                          {t.approved ? 'Godkjent' : 'Venter'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
       <div className="page-header">
@@ -56,72 +134,7 @@ export default function Dashboard() {
           <div className="page-sub">Regnskapsår {year}</div>
         </div>
       </div>
-
-      <div className="stat-grid">
-        <div className="stat-box">
-          <div className="stat-label">Inntekter</div>
-          <div className="stat-value positive">{fmt(stats.inntekter)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utgifter</div>
-          <div className="stat-value negative">{fmt(stats.utgifter)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Resultat</div>
-          <div className={`stat-value ${stats.resultat >= 0 ? 'positive' : 'negative'}`}>
-            {fmt(stats.resultat)}
-          </div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Transaksjoner</div>
-          <div className="stat-value">{stats.antall}</div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-title">Siste transaksjoner</div>
-        {recent.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📋</div>
-            <div className="empty-state-text">Ingen transaksjoner registrert ennå</div>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Dato</th>
-                  <th>Beskrivelse</th>
-                  <th>Kategori</th>
-                  <th>Type</th>
-                  <th className="text-right">Beløp</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((t, i) => (
-                  <tr key={i}>
-                    <td className="text-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>{t.date}</td>
-                    <td>{t.description}</td>
-                    <td style={{ color: 'var(--muted)' }}>{t.categories?.name ?? '—'}</td>
-                    <td><span className={`badge badge-${t.type}`}>{t.type}</span></td>
-                    <td className="text-right">
-                      <span className={t.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
-                        {t.type === 'utgift' ? '−' : '+'}{fmt(t.amount)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                        {t.approved ? 'Godkjent' : 'Venter'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <CardGrid pageKey="dashboard" cards={cards} />
     </div>
   )
 }

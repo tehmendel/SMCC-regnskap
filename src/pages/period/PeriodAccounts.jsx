@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import { fmt, MONTHS, MONTH_NAMES } from '../../lib/format'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
+import { CardGrid } from '../../components/CardGrid'
 
 const PERIODS = [
   { label: 'Måned', value: 'month' },
@@ -220,90 +221,96 @@ export default function PeriodAccounts() {
         </div>
       )}
 
-      {/* KPI-er */}
-      <div className="stat-grid" style={{ marginBottom: 24 }}>
-        <div className="stat-box">
-          <div className="stat-label">Inntekter</div>
-          <div className="stat-value positive">{fmt(inntekter)}</div>
-          {prevInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            Fjorår: {fmt(prevInntekter)}
-          </div>}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utgifter</div>
-          <div className="stat-value negative">{fmt(utgifter)}</div>
-          {prevUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            Fjorår: {fmt(prevUtgifter)}
-          </div>}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Resultat</div>
-          <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Antall transaksjoner</div>
-          <div className="stat-value">{filtered.length}</div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-        {/* Månedlig */}
-        <div className="card">
-          <div className="card-title">Månedlig inn/ut – {selectedYear}</div>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
-              <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-              <Bar dataKey="inntekter" fill="var(--green)" radius={[2,2,0,0]} />
-              <Bar dataKey="utgifter" fill="var(--orange)" radius={[2,2,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Akkumulert */}
-        <div className="card">
-          <div className="card-title">Akkumulert resultat – {selectedYear}</div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={accData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
-              <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-              <Line type="monotone" dataKey="akkumulert" stroke="var(--orange)" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Transaksjoner for perioden */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <div className="card">
-          <div className="card-title">Inntekter – {range.label}</div>
-          {Object.values(byCategory).filter(c => c.type === 'inntekt').sort((a,b) => b.amount - a.amount).map(c => (
-            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
-              <span className="amount-positive">{fmt(c.amount)}</span>
+      <CardGrid pageKey="perioderegnskap" cards={[
+        {
+          id: 'stats',
+          content: (
+            <div className="stat-grid">
+              <div className="stat-box">
+                <div className="stat-label">Inntekter</div>
+                <div className="stat-value positive">{fmt(inntekter)}</div>
+                {prevInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Fjorår: {fmt(prevInntekter)}</div>}
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Utgifter</div>
+                <div className="stat-value negative">{fmt(utgifter)}</div>
+                {prevUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Fjorår: {fmt(prevUtgifter)}</div>}
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Resultat</div>
+                <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Antall transaksjoner</div>
+                <div className="stat-value">{filtered.length}</div>
+              </div>
             </div>
-          ))}
-          {Object.values(byCategory).filter(c => c.type === 'inntekt').length === 0 && (
-            <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-state-text">Ingen inntekter i perioden</div></div>
-          )}
-        </div>
-        <div className="card">
-          <div className="card-title">Utgifter – {range.label}</div>
-          {Object.values(byCategory).filter(c => c.type === 'utgift').sort((a,b) => b.amount - a.amount).map(c => (
-            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
-              <span className="amount-negative">{fmt(c.amount)}</span>
+          ),
+        },
+        {
+          id: 'charts',
+          content: (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="card">
+                <div className="card-title">Månedlig inn/ut – {selectedYear}</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
+                    <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <Bar dataKey="inntekter" fill="var(--green)" radius={[2,2,0,0]} />
+                    <Bar dataKey="utgifter" fill="var(--orange)" radius={[2,2,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="card">
+                <div className="card-title">Akkumulert resultat – {selectedYear}</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={accData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
+                    <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <Line type="monotone" dataKey="akkumulert" stroke="var(--orange)" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-          ))}
-          {Object.values(byCategory).filter(c => c.type === 'utgift').length === 0 && (
-            <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-state-text">Ingen utgifter i perioden</div></div>
-          )}
-        </div>
-      </div>
+          ),
+        },
+        {
+          id: 'kategori',
+          content: (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="card">
+                <div className="card-title">Inntekter – {range.label}</div>
+                {Object.values(byCategory).filter(c => c.type === 'inntekt').sort((a,b) => b.amount - a.amount).map(c => (
+                  <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
+                    <span className="amount-positive">{fmt(c.amount)}</span>
+                  </div>
+                ))}
+                {Object.values(byCategory).filter(c => c.type === 'inntekt').length === 0 && (
+                  <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-state-text">Ingen inntekter i perioden</div></div>
+                )}
+              </div>
+              <div className="card">
+                <div className="card-title">Utgifter – {range.label}</div>
+                {Object.values(byCategory).filter(c => c.type === 'utgift').sort((a,b) => b.amount - a.amount).map(c => (
+                  <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
+                    <span className="amount-negative">{fmt(c.amount)}</span>
+                  </div>
+                ))}
+                {Object.values(byCategory).filter(c => c.type === 'utgift').length === 0 && (
+                  <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-state-text">Ingen utgifter i perioden</div></div>
+                )}
+              </div>
+            </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend
 } from 'recharts'
+import { CardGrid } from '../../components/CardGrid'
 
 const YEARS = [2022, 2023, 2024, 2025, 2026]
 const COLORS = ['#6B7280','#3B82F6','#A855F7','#E85D26','#22C55E']
@@ -138,185 +139,204 @@ export default function AnnualAccounts() {
         </div>
       </div>
 
-      {/* Nøkkeltall */}
-      <div className="stat-grid" style={{ marginBottom: 24 }}>
-        <div className="stat-box">
-          <div className="stat-label">Inntekter {selectedYear}</div>
-          <div className="stat-value positive">{fmt(inntekter)}</div>
-          {arrInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrInntekter)}</div>}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utgifter {selectedYear}</div>
-          <div className="stat-value negative">{fmt(utgifter)}</div>
-          {arrUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrUtgifter)}</div>}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Årsresultat</div>
-          <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Total beholdning 31.12</div>
-          <div className="stat-value">{fmt(totalEndBalance)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utvikling beholdning</div>
-          <div className={`stat-value ${totalEndBalance - totalStartBalance >= 0 ? 'positive' : 'negative'}`}>
-            {fmt(totalEndBalance - totalStartBalance)}
-          </div>
-        </div>
-        {currentMembers > 0 && (
-          <div className="stat-box">
-            <div className="stat-label">Kostnad per medlem</div>
-            <div className="stat-value">{fmt(utgifter / currentMembers)}</div>
-          </div>
-        )}
-      </div>
-
-      {/* Månedlig utvikling */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-title">Månedlig utvikling {selectedYear}</div>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={monthlyData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
-            <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-            <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-            <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
-            <Bar dataKey="inntekter" fill="var(--green)" radius={[3,3,0,0]} />
-            <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-        {/* Kontosaldoer */}
-        <div className="card">
-          <div className="card-title">Beholdning per konto</div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Konto</th><th className="text-right">Inngående</th><th className="text-right">Utgående</th><th className="text-right">Endring</th></tr></thead>
-              <tbody>
-                {accounts.map(acc => {
-                  const start = startBalances.find(b => b.bank_accounts?.name === acc)?.balance || 0
-                  const end = endBalances.find(b => b.bank_accounts?.name === acc)?.balance || 0
-                  return (
-                    <tr key={acc}>
-                      <td>{acc}</td>
-                      <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(start)}</td>
-                      <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(end)}</td>
-                      <td className={`text-right text-mono`} style={{ fontSize: 12, color: end - start >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                        {end - start >= 0 ? '+' : ''}{fmt(end - start)}
-                      </td>
+      <CardGrid pageKey="aarsregnskap" cards={[
+        {
+          id: 'stats',
+          content: (
+            <div className="stat-grid">
+              <div className="stat-box">
+                <div className="stat-label">Inntekter {selectedYear}</div>
+                <div className="stat-value positive">{fmt(inntekter)}</div>
+                {arrInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrInntekter)}</div>}
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Utgifter {selectedYear}</div>
+                <div className="stat-value negative">{fmt(utgifter)}</div>
+                {arrUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrUtgifter)}</div>}
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Årsresultat</div>
+                <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Total beholdning 31.12</div>
+                <div className="stat-value">{fmt(totalEndBalance)}</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Utvikling beholdning</div>
+                <div className={`stat-value ${totalEndBalance - totalStartBalance >= 0 ? 'positive' : 'negative'}`}>
+                  {fmt(totalEndBalance - totalStartBalance)}
+                </div>
+              </div>
+              {currentMembers > 0 && (
+                <div className="stat-box">
+                  <div className="stat-label">Kostnad per medlem</div>
+                  <div className="stat-value">{fmt(utgifter / currentMembers)}</div>
+                </div>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: 'maanedlig',
+          content: (
+            <div className="card">
+              <div className="card-title">Månedlig utvikling {selectedYear}</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
+                  <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
+                  <Bar dataKey="inntekter" fill="var(--green)" radius={[3,3,0,0]} />
+                  <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ),
+        },
+        {
+          id: 'balanse',
+          content: (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="card">
+                <div className="card-title">Beholdning per konto</div>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Konto</th><th className="text-right">Inngående</th><th className="text-right">Utgående</th><th className="text-right">Endring</th></tr></thead>
+                    <tbody>
+                      {accounts.map(acc => {
+                        const start = startBalances.find(b => b.bank_accounts?.name === acc)?.balance || 0
+                        const end = endBalances.find(b => b.bank_accounts?.name === acc)?.balance || 0
+                        return (
+                          <tr key={acc}>
+                            <td>{acc}</td>
+                            <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(start)}</td>
+                            <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(end)}</td>
+                            <td className="text-right text-mono" style={{ fontSize: 12, color: end - start >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                              {end - start >= 0 ? '+' : ''}{fmt(end - start)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td style={{ paddingTop: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>TOTAL</td>
+                        <td className="text-right text-mono" style={{ paddingTop: 10, fontWeight: 600 }}>{fmt(totalStartBalance)}</td>
+                        <td className="text-right text-mono" style={{ paddingTop: 10, fontWeight: 600 }}>{fmt(totalEndBalance)}</td>
+                        <td className="text-right text-mono" style={{ paddingTop: 10, fontWeight: 600, color: totalEndBalance - totalStartBalance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          {totalEndBalance - totalStartBalance >= 0 ? '+' : ''}{fmt(totalEndBalance - totalStartBalance)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-title">Inntekter per kategori</div>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Kategori</th><th className="text-right">Beløp</th><th className="text-right">Andel</th></tr></thead>
+                    <tbody>
+                      {Object.entries(inntektKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
+                        <tr key={name}>
+                          <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
+                          <td className="text-right amount-positive">{fmt(amount)}</td>
+                          <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {inntekter > 0 ? `${((amount/inntekter)*100).toFixed(1)} %` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: 'utgiftkat',
+          content: (
+            <div className="card">
+              <div className="card-title">Utgifter per kategori</div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Kategori</th><th className="text-right">Beløp</th><th className="text-right">Andel</th></tr></thead>
+                  <tbody>
+                    {Object.entries(utgiftKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
+                      <tr key={name}>
+                        <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
+                        <td className="text-right amount-negative">{fmt(amount)}</td>
+                        <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {utgifter > 0 ? `${((amount/utgifter)*100).toFixed(1)} %` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: 'historisk',
+          content: (
+            <div className="card">
+              <div className="card-title">Historisk utvikling – 5 år</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={historicalData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="year" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
+                  <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
+                  <Line type="monotone" dataKey="inntekter" stroke="var(--green)" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="utgifter" stroke="var(--orange)" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="total" stroke="var(--yellow)" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 4 }} name="Total beholdning" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ),
+        },
+        {
+          id: 'arstabell',
+          content: (
+            <div className="card">
+              <div className="card-title">Sammenligning per år</div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>År</th>
+                      <th className="text-right">Inntekter</th>
+                      <th className="text-right">Utgifter</th>
+                      <th className="text-right">Resultat</th>
+                      <th className="text-right">Total beholdning</th>
+                      <th className="text-right">Medlemmer</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style={{ paddingTop: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>TOTAL</td>
-                  <td className="text-right text-mono" style={{ paddingTop: 10, fontWeight: 600 }}>{fmt(totalStartBalance)}</td>
-                  <td className="text-right text-mono" style={{ paddingTop: 10, fontWeight: 600 }}>{fmt(totalEndBalance)}</td>
-                  <td className={`text-right text-mono`} style={{ paddingTop: 10, fontWeight: 600, color: totalEndBalance - totalStartBalance >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                    {totalEndBalance - totalStartBalance >= 0 ? '+' : ''}{fmt(totalEndBalance - totalStartBalance)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        {/* Inntektskategorier */}
-        <div className="card">
-          <div className="card-title">Inntekter per kategori</div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Kategori</th><th className="text-right">Beløp</th><th className="text-right">Andel</th></tr></thead>
-              <tbody>
-                {Object.entries(inntektKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
-                  <tr key={name}>
-                    <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
-                    <td className="text-right amount-positive">{fmt(amount)}</td>
-                    <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {inntekter > 0 ? `${((amount/inntekter)*100).toFixed(1)} %` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Utgiftskategorier */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-title">Utgifter per kategori</div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Kategori</th><th className="text-right">Beløp</th><th className="text-right">Andel</th></tr></thead>
-            <tbody>
-              {Object.entries(utgiftKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
-                <tr key={name}>
-                  <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
-                  <td className="text-right amount-negative">{fmt(amount)}</td>
-                  <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {utgifter > 0 ? `${((amount/utgifter)*100).toFixed(1)} %` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Historisk sammenligning */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-title">Historisk utvikling – 5 år</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={historicalData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis dataKey="year" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
-            <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-            <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-            <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
-            <Line type="monotone" dataKey="inntekter" stroke="var(--green)" strokeWidth={2} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="utgifter" stroke="var(--orange)" strokeWidth={2} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="total" stroke="var(--yellow)" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 4 }} name="Total beholdning" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Historisk tabell */}
-      <div className="card">
-        <div className="card-title">Sammenligning per år</div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>År</th>
-                <th className="text-right">Inntekter</th>
-                <th className="text-right">Utgifter</th>
-                <th className="text-right">Resultat</th>
-                <th className="text-right">Total beholdning</th>
-                <th className="text-right">Medlemmer</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historicalData.filter(d => d.inntekter > 0 || d.total > 0).map(d => (
-                <tr key={d.year} style={{ background: String(selectedYear) === d.year ? 'rgba(232,93,38,0.05)' : undefined }}>
-                  <td className="text-mono" style={{ fontWeight: String(selectedYear) === d.year ? 600 : 400, color: String(selectedYear) === d.year ? 'var(--orange)' : 'var(--white)' }}>{d.year}</td>
-                  <td className="text-right amount-positive">{d.inntekter > 0 ? fmt(d.inntekter) : '—'}</td>
-                  <td className="text-right amount-negative">{d.utgifter > 0 ? fmt(d.utgifter) : '—'}</td>
-                  <td className={`text-right text-mono`} style={{ color: d.resultat >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                    {d.inntekter > 0 ? fmt(d.resultat) : '—'}
-                  </td>
-                  <td className="text-right text-mono">{d.total > 0 ? fmt(d.total) : '—'}</td>
-                  <td className="text-right text-mono">{d.medlemmer || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  </thead>
+                  <tbody>
+                    {historicalData.filter(d => d.inntekter > 0 || d.total > 0).map(d => (
+                      <tr key={d.year} style={{ background: String(selectedYear) === d.year ? 'rgba(232,93,38,0.05)' : undefined }}>
+                        <td className="text-mono" style={{ fontWeight: String(selectedYear) === d.year ? 600 : 400, color: String(selectedYear) === d.year ? 'var(--orange)' : 'var(--white)' }}>{d.year}</td>
+                        <td className="text-right amount-positive">{d.inntekter > 0 ? fmt(d.inntekter) : '—'}</td>
+                        <td className="text-right amount-negative">{d.utgifter > 0 ? fmt(d.utgifter) : '—'}</td>
+                        <td className="text-right text-mono" style={{ color: d.resultat >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          {d.inntekter > 0 ? fmt(d.resultat) : '—'}
+                        </td>
+                        <td className="text-right text-mono">{d.total > 0 ? fmt(d.total) : '—'}</td>
+                        <td className="text-right text-mono">{d.medlemmer || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }

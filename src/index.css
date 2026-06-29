@@ -376,3 +376,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .text-muted { color: var(--muted); }
 .text-mono  { font-family: var(--font-mono); }
 .text-right { text-align: right; }
+
+/* Drag handles */
+*:hover > .drag-handle,
+.sortable-card:hover .drag-handle { opacity: 0.5 !important; }
+.drag-handle:hover { opacity: 1 !important; color: var(--muted) !important; }
