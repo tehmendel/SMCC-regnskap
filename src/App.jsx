@@ -19,6 +19,7 @@ import MemberRegistry from './pages/MemberRegistry'
 import Reisekasse from './pages/Reisekasse'
 import CashCounts from './pages/CashCounts'
 import VippsConfig from './pages/admin/VippsConfig'
+import VippsStats from './pages/VippsStats'
 
 function useVippsEnv() {
   const [env, setEnv] = useState(null)
@@ -66,6 +67,7 @@ function Sidebar() {
       <NavItem to="/medlemsavgift" icon="◈" label="Medlemsavgift" />
       <NavItem to="/reisekassen" icon="✈" label="Reisekassen" />
       <NavItem to="/kontantbeholdning" icon="◈" label="Kontantbeholdning" />
+      <NavItem to="/vipps" icon="⬡" label="Vipps" />
 
       {isAdmin && (
         <>
@@ -125,6 +127,7 @@ function AppShell() {
           <Route path="/medlemsavgift" element={<Members />} />
           <Route path="/reisekassen" element={<Reisekasse />} />
           <Route path="/kontantbeholdning" element={<CashCounts />} />
+          <Route path="/vipps" element={<VippsStats />} />
           <Route path="/medlemmer" element={<Navigate to="/medlemsavgift" replace />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
