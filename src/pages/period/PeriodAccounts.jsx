@@ -15,17 +15,28 @@ export default function PeriodAccounts() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [transactions, setTransactions] = useState([])
+  const [arrExpenses, setArrExpenses] = useState([])
+  const [arrRevenues, setArrRevenues] = useState([])
   const [budgets, setBudgets] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
-      const [txRes, budRes] = await Promise.all([
+      const [txRes, budRes, arrExpRes, arrRevRes] = await Promise.all([
         supabase.from('transactions').select('*, categories(name,type)').gte('date', '2022-01-01'),
         supabase.from('budgets_v2').select('*, categories(name,type)').eq('year', selectedYear),
+        supabase.from('arrangement_expenses')
+          .select('amount, expense_date, arrangements(year, name)')
+          .is('transaction_id', null)
+          .eq('is_estimate', false),
+        supabase.from('arrangement_revenues')
+          .select('amount, revenue_date, arrangements(year, name)')
+          .is('transaction_id', null),
       ])
       setTransactions(txRes.data || [])
       setBudgets(budRes.data || [])
+      setArrExpenses(arrExpRes.data || [])
+      setArrRevenues(arrRevRes.data || [])
       setLoading(false)
     }
     load()
@@ -49,6 +60,7 @@ export default function PeriodAccounts() {
 
   const range = getPeriodRange()
 
+  // Returns true if a bank transaction date falls in the selected period
   function inRange(dateStr) {
     const d = new Date(dateStr)
     const year = d.getFullYear()
@@ -60,50 +72,116 @@ export default function PeriodAccounts() {
     return true
   }
 
+  // Returns true if an arrangement item falls in the selected period
+  // Uses arrangements.year for year boundary; expense_date/revenue_date for sub-year placement
+  function arrInRange(item) {
+    const arrYear = item.arrangements?.year
+    if (arrYear !== selectedYear) return false
+    if (period === 'year') return true
+    const date = item.expense_date || item.revenue_date
+    if (!date) return false
+    const month = new Date(date).getMonth() + 1
+    if (period === 'month') return month === selectedMonth
+    if (period === 'quarter') { const q = Math.ceil(selectedMonth/3); const qm = (q-1)*3+1; return month >= qm && month <= qm+2 }
+    if (period === 'half') { return selectedMonth <= 6 ? month <= 6 : month >= 7 }
+    return false
+  }
+
   const filtered = transactions.filter(t => inRange(t.date))
+  const filteredArrExp = arrExpenses.filter(arrInRange)
+  const filteredArrRev = arrRevenues.filter(arrInRange)
+
+  const txInntekter   = filtered.filter(t => t.type === 'inntekt').reduce((s,t) => s + Number(t.amount), 0)
+  const txUtgifter    = filtered.filter(t => t.type === 'utgift').reduce((s,t) => s + Number(t.amount), 0)
+  const arrInntekter  = filteredArrRev.reduce((s,r) => s + Number(r.amount), 0)
+  const arrUtgifter   = filteredArrExp.reduce((s,e) => s + Number(e.amount), 0)
+  const inntekter     = txInntekter + arrInntekter
+  const utgifter      = txUtgifter  + arrUtgifter
+  const resultat      = inntekter - utgifter
+
   const prevFiltered = transactions.filter(t => {
     const d = new Date(t.date)
-    return d.getFullYear() === selectedYear - 1 && inRange(t.date.replace(String(selectedYear), String(selectedYear - 1)))
+    if (d.getFullYear() !== selectedYear - 1) return false
+    const month = d.getMonth() + 1
+    if (period === 'month') return month === selectedMonth
+    if (period === 'quarter') { const q = Math.ceil(selectedMonth/3); const qm = (q-1)*3+1; return month >= qm && month <= qm+2 }
+    if (period === 'half') { return selectedMonth <= 6 ? month <= 6 : month >= 7 }
+    return true
   })
-
-  const inntekter = filtered.filter(t => t.type === 'inntekt').reduce((s,t) => s + Number(t.amount), 0)
-  const utgifter  = filtered.filter(t => t.type === 'utgift').reduce((s,t) => s + Number(t.amount), 0)
-  const resultat  = inntekter - utgifter
+  const prevArrExp = arrExpenses.filter(e => {
+    const arrYear = e.arrangements?.year
+    if (arrYear !== selectedYear - 1) return false
+    if (period === 'year') return true
+    const date = e.expense_date
+    if (!date) return false
+    const month = new Date(date).getMonth() + 1
+    if (period === 'month') return month === selectedMonth
+    if (period === 'quarter') { const q = Math.ceil(selectedMonth/3); const qm = (q-1)*3+1; return month >= qm && month <= qm+2 }
+    if (period === 'half') { return selectedMonth <= 6 ? month <= 6 : month >= 7 }
+    return false
+  })
+  const prevArrRev = arrRevenues.filter(r => {
+    const arrYear = r.arrangements?.year
+    if (arrYear !== selectedYear - 1) return false
+    if (period === 'year') return true
+    const date = r.revenue_date
+    if (!date) return false
+    const month = new Date(date).getMonth() + 1
+    if (period === 'month') return month === selectedMonth
+    if (period === 'quarter') { const q = Math.ceil(selectedMonth/3); const qm = (q-1)*3+1; return month >= qm && month <= qm+2 }
+    if (period === 'half') { return selectedMonth <= 6 ? month <= 6 : month >= 7 }
+    return false
+  })
   const prevInntekter = prevFiltered.filter(t => t.type === 'inntekt').reduce((s,t) => s + Number(t.amount), 0)
+    + prevArrRev.reduce((s,r) => s + Number(r.amount), 0)
   const prevUtgifter  = prevFiltered.filter(t => t.type === 'utgift').reduce((s,t) => s + Number(t.amount), 0)
+    + prevArrExp.reduce((s,e) => s + Number(e.amount), 0)
 
-  // Per kategori
-  const byCategory = filtered.reduce((acc, t) => {
+  // Per kategori (inkl. arrangement)
+  const byCategory = {}
+  for (const t of filtered) {
     const name = t.categories?.name || 'Ukategorisert'
-    const type = t.type
-    if (!acc[name]) acc[name] = { name, type, amount: 0 }
-    acc[name].amount += Number(t.amount)
-    return acc
-  }, {})
+    if (!byCategory[name]) byCategory[name] = { name, type: t.type, amount: 0 }
+    byCategory[name].amount += Number(t.amount)
+  }
+  for (const e of filteredArrExp) {
+    const name = `${e.arrangements?.name || 'Arrangement'} (arr.)`
+    if (!byCategory[name]) byCategory[name] = { name, type: 'utgift', amount: 0 }
+    byCategory[name].amount += Number(e.amount)
+  }
+  for (const r of filteredArrRev) {
+    const name = `${r.arrangements?.name || 'Arrangement'} (arr.)`
+    if (!byCategory[name]) byCategory[name] = { name, type: 'inntekt', amount: 0 }
+    byCategory[name].amount += Number(r.amount)
+  }
 
-  // Akkumulert per måned i år
+  // Akkumulert per måned i år (inkl. arrangement)
   let accumulated = 0
   const accData = MONTHS.map((m, i) => {
     const monthTx = transactions.filter(t => {
       const d = new Date(t.date)
       return d.getFullYear() === selectedYear && d.getMonth() === i
     })
-    const net = monthTx.filter(t => t.type === 'inntekt').reduce((s,t) => s+Number(t.amount), 0)
-             - monthTx.filter(t => t.type === 'utgift').reduce((s,t) => s+Number(t.amount), 0)
+    const monthArrExp = arrExpenses.filter(e => e.arrangements?.year === selectedYear && e.expense_date && new Date(e.expense_date).getMonth() === i)
+    const monthArrRev = arrRevenues.filter(r => r.arrangements?.year === selectedYear && r.revenue_date && new Date(r.revenue_date).getMonth() === i)
+    const net = (monthTx.filter(t => t.type === 'inntekt').reduce((s,t) => s+Number(t.amount), 0) + monthArrRev.reduce((s,r) => s+Number(r.amount), 0))
+              - (monthTx.filter(t => t.type === 'utgift').reduce((s,t) => s+Number(t.amount), 0) + monthArrExp.reduce((s,e) => s+Number(e.amount), 0))
     accumulated += net
     return { name: m, akkumulert: accumulated }
   })
 
-  // Månedlig inntekter/utgifter for hele året
+  // Månedlig inntekter/utgifter for hele året (inkl. arrangement)
   const monthlyData = MONTHS.map((m, i) => {
     const monthTx = transactions.filter(t => {
       const d = new Date(t.date)
       return d.getFullYear() === selectedYear && d.getMonth() === i
     })
+    const monthArrExp = arrExpenses.filter(e => e.arrangements?.year === selectedYear && e.expense_date && new Date(e.expense_date).getMonth() === i)
+    const monthArrRev = arrRevenues.filter(r => r.arrangements?.year === selectedYear && r.revenue_date && new Date(r.revenue_date).getMonth() === i)
     return {
       name: m,
-      inntekter: monthTx.filter(t => t.type === 'inntekt').reduce((s,t) => s+Number(t.amount), 0),
-      utgifter: monthTx.filter(t => t.type === 'utgift').reduce((s,t) => s+Number(t.amount), 0),
+      inntekter: monthTx.filter(t => t.type === 'inntekt').reduce((s,t) => s+Number(t.amount), 0) + monthArrRev.reduce((s,r) => s+Number(r.amount), 0),
+      utgifter:  monthTx.filter(t => t.type === 'utgift').reduce((s,t) => s+Number(t.amount), 0)  + monthArrExp.reduce((s,e) => s+Number(e.amount), 0),
     }
   })
 
@@ -203,7 +281,7 @@ export default function PeriodAccounts() {
           <div className="card-title">Inntekter – {range.label}</div>
           {Object.values(byCategory).filter(c => c.type === 'inntekt').sort((a,b) => b.amount - a.amount).map(c => (
             <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 13 }}>{c.name}</span>
+              <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
               <span className="amount-positive">{fmt(c.amount)}</span>
             </div>
           ))}
@@ -215,7 +293,7 @@ export default function PeriodAccounts() {
           <div className="card-title">Utgifter – {range.label}</div>
           {Object.values(byCategory).filter(c => c.type === 'utgift').sort((a,b) => b.amount - a.amount).map(c => (
             <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 13 }}>{c.name}</span>
+              <span style={{ fontSize: 13, color: c.name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{c.name}</span>
               <span className="amount-negative">{fmt(c.amount)}</span>
             </div>
           ))}

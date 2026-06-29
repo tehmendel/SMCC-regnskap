@@ -13,19 +13,34 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('transactions')
-        .select('amount, type, date, description, approved, categories(name)')
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`)
-        .order('date', { ascending: false })
+      const [txRes, arrExpRes, arrRevRes] = await Promise.all([
+        supabase.from('transactions')
+          .select('amount, type, date, description, approved, categories(name)')
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`)
+          .order('date', { ascending: false }),
+        supabase.from('arrangement_expenses')
+          .select('amount, arrangements(year)')
+          .is('transaction_id', null)
+          .eq('is_estimate', false),
+        supabase.from('arrangement_revenues')
+          .select('amount, arrangements(year)')
+          .is('transaction_id', null),
+      ])
 
-      if (data) {
-        const inntekter = data.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0)
-        const utgifter  = data.filter(t => t.type === 'utgift').reduce((s, t)  => s + Number(t.amount), 0)
-        setStats({ inntekter, utgifter, resultat: inntekter - utgifter, antall: data.length })
-        setRecent(data.slice(0, 8))
-      }
+      const data = txRes.data || []
+      const arrExp = (arrExpRes.data || []).filter(e => e.arrangements?.year === year)
+      const arrRev = (arrRevRes.data || []).filter(r => r.arrangements?.year === year)
+
+      const txInntekter  = data.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0)
+      const txUtgifter   = data.filter(t => t.type === 'utgift').reduce((s, t)  => s + Number(t.amount), 0)
+      const arrInntekter = arrRev.reduce((s, r) => s + Number(r.amount), 0)
+      const arrUtgifter  = arrExp.reduce((s, e) => s + Number(e.amount), 0)
+      const inntekter    = txInntekter + arrInntekter
+      const utgifter     = txUtgifter  + arrUtgifter
+
+      setStats({ inntekter, utgifter, resultat: inntekter - utgifter, antall: data.length })
+      setRecent(data.slice(0, 8))
       setLoading(false)
     }
     load()
