@@ -14,19 +14,31 @@ export default function AnnualAccounts() {
   const [balances, setBalances] = useState([])
   const [transactions, setTransactions] = useState([])
   const [members, setMembers] = useState([])
+  const [arrExpenses, setArrExpenses] = useState([])
+  const [arrRevenues, setArrRevenues] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const [balRes, txRes, membRes] = await Promise.all([
+      const [balRes, txRes, membRes, arrExpRes, arrRevRes] = await Promise.all([
         supabase.from('account_balances').select('*, bank_accounts(name, sort_order)').order('year').order('month'),
         supabase.from('transactions').select('*, categories(name, type)').gte('date', '2021-01-01'),
         supabase.from('member_counts').select('*').order('year'),
+        // Only unlinked arrangement entries (linked ones already appear in transactions)
+        supabase.from('arrangement_expenses')
+          .select('amount, is_estimate, expense_date, arrangements!arrangement_id(year, name)')
+          .is('transaction_id', null)
+          .eq('is_estimate', false),
+        supabase.from('arrangement_revenues')
+          .select('amount, revenue_date, arrangements!arrangement_id(year, name)')
+          .is('transaction_id', null),
       ])
       setBalances(balRes.data || [])
       setTransactions(txRes.data || [])
       setMembers(membRes.data || [])
+      setArrExpenses(arrExpRes.data || [])
+      setArrRevenues(arrRevRes.data || [])
       setLoading(false)
     }
     load()
@@ -34,10 +46,20 @@ export default function AnnualAccounts() {
 
   if (loading) return <div className="text-muted">Laster…</div>
 
-  // Filtrer transaksjoner for valgt år
+  // Arrangement-poster for valgt år (bruker arrangementets år, ikke transaksjonsdato)
+  const yearArrExp = arrExpenses.filter(e => e.arrangements?.year === selectedYear)
+  const yearArrRev = arrRevenues.filter(r => r.arrangements?.year === selectedYear)
+
+  // Filtrer banktransaksjoner for valgt år
   const yearTx = transactions.filter(t => new Date(t.date).getFullYear() === selectedYear)
-  const inntekter = yearTx.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0)
-  const utgifter  = yearTx.filter(t => t.type === 'utgift').reduce((s, t) => s + Number(t.amount), 0)
+
+  // Totaler inkludert arrangement
+  const txInntekter = yearTx.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0)
+  const txUtgifter  = yearTx.filter(t => t.type === 'utgift').reduce((s, t) => s + Number(t.amount), 0)
+  const arrInntekter = yearArrRev.reduce((s, r) => s + Number(r.amount), 0)
+  const arrUtgifter  = yearArrExp.reduce((s, e) => s + Number(e.amount), 0)
+  const inntekter = txInntekter + arrInntekter
+  const utgifter  = txUtgifter + arrUtgifter
   const resultat  = inntekter - utgifter
 
   // Kontosaldoer for valgt år
@@ -48,36 +70,50 @@ export default function AnnualAccounts() {
   const monthlyData = MONTHS.map((month, i) => {
     const monthNum = i + 1
     const monthTx = yearTx.filter(t => new Date(t.date).getMonth() + 1 === monthNum)
+    const monthArrExp = yearArrExp.filter(e => e.expense_date && new Date(e.expense_date).getMonth() + 1 === monthNum)
+    const monthArrRev = yearArrRev.filter(r => r.revenue_date && new Date(r.revenue_date).getMonth() + 1 === monthNum)
     return {
       name: month,
-      inntekter: monthTx.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0),
-      utgifter: monthTx.filter(t => t.type === 'utgift').reduce((s, t) => s + Number(t.amount), 0),
+      inntekter: monthTx.filter(t => t.type === 'inntekt').reduce((s, t) => s + Number(t.amount), 0)
+               + monthArrRev.reduce((s, r) => s + Number(r.amount), 0),
+      utgifter: monthTx.filter(t => t.type === 'utgift').reduce((s, t) => s + Number(t.amount), 0)
+              + monthArrExp.reduce((s, e) => s + Number(e.amount), 0),
     }
   })
 
-  // Historisk sammenligning (fra account_balances)
+  // Historisk sammenligning
   const historicalData = YEARS.map(year => {
     const dec = balances.filter(b => b.year === year && b.month === 12)
     const total = dec.reduce((s, b) => s + Number(b.balance), 0)
     const yearIncome = transactions.filter(t => new Date(t.date).getFullYear() === year && t.type === 'inntekt').reduce((s,t) => s + Number(t.amount), 0)
+      + arrRevenues.filter(r => r.arrangements?.year === year).reduce((s,r) => s + Number(r.amount), 0)
     const yearCost = transactions.filter(t => new Date(t.date).getFullYear() === year && t.type === 'utgift').reduce((s,t) => s + Number(t.amount), 0)
+      + arrExpenses.filter(e => e.arrangements?.year === year).reduce((s,e) => s + Number(e.amount), 0)
     const memberCount = members.find(m => m.year === year)?.count || 0
     return { year: String(year), total, inntekter: yearIncome, utgifter: yearCost, resultat: yearIncome - yearCost, medlemmer: memberCount }
   })
 
-  // Inntektskategorier for valgt år
+  // Inntektskategorier (banktransaksjoner + arrangement per arrangement-navn)
   const inntektKat = yearTx.filter(t => t.type === 'inntekt').reduce((acc, t) => {
     const name = t.categories?.name || 'Ukategorisert'
     acc[name] = (acc[name] || 0) + Number(t.amount)
     return acc
   }, {})
+  for (const r of yearArrRev) {
+    const name = r.arrangements?.name ? `${r.arrangements.name} (arr.)` : 'Arrangement'
+    inntektKat[name] = (inntektKat[name] || 0) + Number(r.amount)
+  }
 
-  // Utgiftskategorier
+  // Utgiftskategorier (banktransaksjoner + arrangement per arrangement-navn)
   const utgiftKat = yearTx.filter(t => t.type === 'utgift').reduce((acc, t) => {
     const name = t.categories?.name || 'Ukategorisert'
     acc[name] = (acc[name] || 0) + Number(t.amount)
     return acc
   }, {})
+  for (const e of yearArrExp) {
+    const name = e.arrangements?.name ? `${e.arrangements.name} (arr.)` : 'Arrangement'
+    utgiftKat[name] = (utgiftKat[name] || 0) + Number(e.amount)
+  }
 
   // Sluttsaldo for valgt år
   const endBalances = yearBalances.filter(b => b.month === 12)
@@ -107,10 +143,12 @@ export default function AnnualAccounts() {
         <div className="stat-box">
           <div className="stat-label">Inntekter {selectedYear}</div>
           <div className="stat-value positive">{fmt(inntekter)}</div>
+          {arrInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrInntekter)}</div>}
         </div>
         <div className="stat-box">
           <div className="stat-label">Utgifter {selectedYear}</div>
           <div className="stat-value negative">{fmt(utgifter)}</div>
+          {arrUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrUtgifter)}</div>}
         </div>
         <div className="stat-box">
           <div className="stat-label">Årsresultat</div>
@@ -196,7 +234,7 @@ export default function AnnualAccounts() {
               <tbody>
                 {Object.entries(inntektKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
                   <tr key={name}>
-                    <td>{name}</td>
+                    <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
                     <td className="text-right amount-positive">{fmt(amount)}</td>
                     <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {inntekter > 0 ? `${((amount/inntekter)*100).toFixed(1)} %` : '—'}
@@ -206,6 +244,27 @@ export default function AnnualAccounts() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Utgiftskategorier */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-title">Utgifter per kategori</div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Kategori</th><th className="text-right">Beløp</th><th className="text-right">Andel</th></tr></thead>
+            <tbody>
+              {Object.entries(utgiftKat).sort((a,b) => b[1]-a[1]).map(([name, amount]) => (
+                <tr key={name}>
+                  <td style={{ color: name.endsWith('(arr.)') ? 'var(--yellow)' : undefined }}>{name}</td>
+                  <td className="text-right amount-negative">{fmt(amount)}</td>
+                  <td className="text-right text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {utgifter > 0 ? `${((amount/utgifter)*100).toFixed(1)} %` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
