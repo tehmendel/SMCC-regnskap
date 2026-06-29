@@ -146,13 +146,15 @@ export default function PeriodAccounts() {
   }
   for (const e of filteredArrExp) {
     const name = `${e.arrangements?.name || 'Arrangement'} (arr.)`
-    if (!byCategory[name]) byCategory[name] = { name, type: 'utgift', amount: 0 }
-    byCategory[name].amount += Number(e.amount)
+    const key = name + '__u'
+    if (!byCategory[key]) byCategory[key] = { name, type: 'utgift', amount: 0 }
+    byCategory[key].amount += Number(e.amount)
   }
   for (const r of filteredArrRev) {
     const name = `${r.arrangements?.name || 'Arrangement'} (arr.)`
-    if (!byCategory[name]) byCategory[name] = { name, type: 'inntekt', amount: 0 }
-    byCategory[name].amount += Number(r.amount)
+    const key = name + '__i'
+    if (!byCategory[key]) byCategory[key] = { name, type: 'inntekt', amount: 0 }
+    byCategory[key].amount += Number(r.amount)
   }
 
   // Akkumulert per måned i år (inkl. arrangement)
