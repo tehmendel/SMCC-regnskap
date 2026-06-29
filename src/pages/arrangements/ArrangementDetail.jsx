@@ -573,6 +573,7 @@ export default function ArrangementDetail() {
 
       {/* OVERSIKT */}
       {activeTab === 'oversikt' && (
+        <>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div className="card">
             <div className="card-title">Budsjett vs. faktisk per avdeling</div>
@@ -761,6 +762,7 @@ export default function ArrangementDetail() {
             </div>
           </div>
         )}
+        </>
       )}
 
       {/* UTGIFTER */}
@@ -839,6 +841,7 @@ export default function ArrangementDetail() {
 
       {/* INNTEKTER */}
       {activeTab === 'inntekter' && (
+        <>
         {linkTarget && (
           <LinkTxModal
             revenue={linkTarget}
@@ -911,6 +914,7 @@ export default function ArrangementDetail() {
             </div>
           )}
         </div>
+        </>
       )}
 
       {/* VIPPS */}
