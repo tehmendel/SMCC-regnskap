@@ -45,8 +45,12 @@ export default function VippsConfig() {
   const [confirmSwitch, setConfirmSwitch] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState(null)
+  const [syncLog, setSyncLog] = useState([])
+  const [daysBack, setDaysBack] = useState(30)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadSyncLog() }, [])
 
   async function load() {
     const [cRes, mRes] = await Promise.all([
@@ -92,6 +96,26 @@ export default function VippsConfig() {
     else { setSaveMsg('Lagret!'); load() }
     setSaving(false)
     setTimeout(() => setSaveMsg(''), 3000)
+  }
+
+  async function loadSyncLog() {
+    const { data } = await supabase
+      .from('vipps_sync_log')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(10)
+    setSyncLog(data || [])
+  }
+
+  async function triggerSync() {
+    setSyncing(true)
+    setSyncResult(null)
+    const { data, error } = await supabase.functions.invoke('vipps-sync', {
+      body: { source: 'manual', days_back: daysBack },
+    })
+    setSyncResult(error ? { ok: false, error: error.message } : data)
+    setSyncing(false)
+    loadSyncLog()
   }
 
   async function testConnection() {
@@ -388,6 +412,114 @@ export default function VippsConfig() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: 'sync',
+          content: (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div className="card-title" style={{ marginBottom: 2 }}>Datasynk</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Henter transaksjoner fra Vipps for alle aktive betalingssteder
+                  </div>
+                </div>
+                <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                  <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                    <label style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Hent siste</label>
+                    <select className="form-select" style={{ width: 110 }} value={daysBack} onChange={e => setDaysBack(Number(e.target.value))}>
+                      <option value={7}>7 dager</option>
+                      <option value={30}>30 dager</option>
+                      <option value={90}>90 dager</option>
+                      <option value={180}>180 dager</option>
+                      <option value={365}>365 dager</option>
+                    </select>
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={triggerSync} disabled={syncing}>
+                    {syncing ? '⟳ Synkroniserer…' : '↻ Oppdater nå'}
+                  </button>
+                </div>
+              </div>
+
+              {syncResult && (
+                <div style={{
+                  marginBottom: 20, padding: 14, borderRadius: 8,
+                  background: syncResult.ok ? '#0d2218' : '#2a0d0d',
+                  border: `1px solid ${syncResult.ok ? 'var(--green)' : 'var(--red)'}`,
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: syncResult.ok ? 'var(--green)' : 'var(--red)', marginBottom: syncResult.ok ? 8 : 4 }}>
+                    {syncResult.ok ? '✓ Synk fullført' : '✗ Synk mislyktes'}
+                  </div>
+                  {syncResult.ok ? (
+                    <div style={{ display: 'flex', gap: 24, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                      <span>Miljø: <strong style={{ color: 'var(--text)' }}>{syncResult.environment}</strong></span>
+                      <span>Periode: <strong style={{ color: 'var(--text)' }}>{syncResult.from} → {syncResult.to}</strong></span>
+                      <span>Transaksjoner: <strong style={{ color: 'var(--text)' }}>{syncResult.transactions_upserted}</strong></span>
+                      <span>MSN-er: <strong style={{ color: 'var(--text)' }}>{syncResult.msns_processed}</strong></span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--red)' }}>{syncResult.error}</div>
+                  )}
+                  {syncResult.msns?.some(m => m.error) && (
+                    <div style={{ marginTop: 8 }}>
+                      {syncResult.msns.filter(m => m.error).map(m => (
+                        <div key={m.msn} style={{ fontSize: 11, color: 'var(--yellow)', fontFamily: 'var(--font-mono)' }}>
+                          MSN {m.msn} ({m.label}): {m.error}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {syncLog.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: '20px 0' }}>
+                  Ingen synk-kjøringer ennå. Trykk «Oppdater nå» for å starte.
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Tidspunkt</th>
+                        <th>Kilde</th>
+                        <th>Miljø</th>
+                        <th style={{ textAlign: 'center' }}>Status</th>
+                        <th style={{ textAlign: 'right' }}>Transaksjoner</th>
+                        <th style={{ textAlign: 'right' }}>Periode</th>
+                        <th>Feil</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syncLog.map(row => {
+                        const statusColor = row.status === 'success' ? 'var(--green)' : row.status === 'error' ? 'var(--red)' : row.status === 'partial' ? 'var(--yellow)' : 'var(--muted)'
+                        const statusLabel = row.status === 'success' ? '✓ OK' : row.status === 'error' ? '✗ Feil' : row.status === 'partial' ? '⚠ Delvis' : '⟳ Kjører'
+                        return (
+                          <tr key={row.id}>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                              {new Date(row.started_at).toLocaleString('nb-NO', { dateStyle: 'short', timeStyle: 'short' })}
+                            </td>
+                            <td style={{ fontSize: 12 }}>
+                              <span style={{ background: row.source === 'cron' ? 'var(--graphite)' : 'var(--accent)22', color: row.source === 'cron' ? 'var(--muted)' : 'var(--accent)', borderRadius: 4, padding: '1px 6px', fontSize: 11 }}>
+                                {row.source === 'cron' ? 'Automatisk' : 'Manuell'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 12 }}>{row.environment}</td>
+                            <td style={{ textAlign: 'center', fontWeight: 600, color: statusColor, fontSize: 12 }}>{statusLabel}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{row.transactions_upserted ?? '—'}</td>
+                            <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--muted)' }}>{row.days_back ? `${row.days_back}d` : '—'}</td>
+                            <td style={{ fontSize: 11, color: 'var(--red)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {row.error_message || '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
