@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
+import { CardGrid } from '../components/CardGrid'
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -502,8 +503,11 @@ export default function Members() {
         </div>
       )}
 
-      {/* Payment grid */}
-      <div className="card" style={{ marginBottom: 24, overflowX: 'auto' }}>
+      <CardGrid pageKey="members" cards={[
+        {
+          id: 'betalinger',
+          content: (
+      <div className="card" style={{ overflowX: 'auto' }}>
         <table style={{ minWidth: 980, borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>
@@ -588,8 +592,11 @@ export default function Members() {
         </table>
       </div>
 
-      {/* Unmatched fee transactions */}
-      {unmatched.length > 0 && (
+          ),
+        },
+        ...(unmatched.length > 0 ? [{
+          id: 'innbetalinger',
+          content: (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
             <div style={{ fontWeight: 500 }}>
@@ -752,7 +759,9 @@ export default function Members() {
             </div>
           )}
         </div>
-      )}
+          ),
+        }] : []),
+      ]} />
     </div>
   )
 }

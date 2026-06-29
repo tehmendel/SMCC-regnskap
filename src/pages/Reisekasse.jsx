@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { fmt } from '../lib/format'
+import { CardGrid } from '../components/CardGrid'
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -181,8 +182,11 @@ export default function Reisekasse() {
         </div>
       </div>
 
-      {/* Payment grid */}
-      <div className="card" style={{ marginBottom: 24, overflowX: 'auto' }}>
+      <CardGrid pageKey="reisekasse" cards={[
+        {
+          id: 'betalinger',
+          content: (
+      <div className="card" style={{ overflowX: 'auto' }}>
         {reisekasseMembers.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">🧳</div>
@@ -269,28 +273,33 @@ export default function Reisekasse() {
         )}
       </div>
 
-      {/* Satshistorikk */}
-      {feeHistory.length > 1 && (
-        <div className="card">
-          <div className="card-title">Satshistorikk</div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Gjelder fra</th><th className="text-right">Kr/mnd</th><th>Kommentar</th></tr>
-              </thead>
-              <tbody>
-                {feeHistory.map(r => (
-                  <tr key={r.id}>
-                    <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.effective_from}</td>
-                    <td className="text-right" style={{ fontFamily: 'var(--font-mono)' }}>{fmt(r.amount_monthly)}</td>
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{r.notes || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+          ),
+        },
+        ...(feeHistory.length > 1 ? [{
+          id: 'satshistorikk',
+          content: (
+            <div className="card">
+              <div className="card-title">Satshistorikk</div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Gjelder fra</th><th className="text-right">Kr/mnd</th><th>Kommentar</th></tr>
+                  </thead>
+                  <tbody>
+                    {feeHistory.map(r => (
+                      <tr key={r.id}>
+                        <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.effective_from}</td>
+                        <td className="text-right" style={{ fontFamily: 'var(--font-mono)' }}>{fmt(r.amount_monthly)}</td>
+                        <td style={{ color: 'var(--muted)', fontSize: 12 }}>{r.notes || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ),
+        }] : []),
+      ]} />
     </div>
   )
 }

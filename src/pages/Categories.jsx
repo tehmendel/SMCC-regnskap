@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
+import { CardGrid } from '../components/CardGrid'
 
 const COLUMNS = [
   { key: 'name',        label: 'Navn' },
@@ -168,49 +169,55 @@ export default function Categories() {
         </div>
       </div>
 
-      {['inntekt', 'utgift'].map(type => {
-        const list = byType[type] || []
-        if (!list.length) return null
-        return (
-          <div key={type} className="card" style={{ marginBottom: 20 }}>
-            <div className="card-title" style={{ textTransform: 'capitalize' }}>
-              {type}kategorier
-              <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8, fontSize: 12 }}>
-                {list.filter(c => c.active).length} aktive
-              </span>
-            </div>
-            <div className="table-wrap">
-              <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
-                <thead>
-                  <tr>
-                    {prefs.orderedVisible.map(col => (
-                      <ResizableTh key={col.key} colKey={col.key} prefs={prefs}>{col.label}</ResizableTh>
-                    ))}
-                    {isAdmin && <th style={{ width: 180, whiteSpace: 'nowrap' }}>Handlinger</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map(c => (
-                    <tr key={c.id} style={{ opacity: c.active ? 1 : 0.55 }}>
-                      {prefs.orderedVisible.map(col => renderCell(c, col.key))}
-                      {isAdmin && (
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <div className="flex gap-8">
-                            <button className="btn btn-sm btn-secondary" style={{ minWidth: 90 }}
-                              onClick={() => { setEditCat(c); setShowModal(true) }}>✎ Rediger</button>
-                            <button className="btn btn-sm btn-danger" disabled={deleting === c.id}
-                              onClick={() => deleteCategory(c)}>{deleting === c.id ? '…' : 'Slett'}</button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      })}
+      <CardGrid pageKey="kategorier" cards={
+        ['inntekt', 'utgift']
+          .filter(type => (byType[type] || []).length > 0)
+          .map(type => {
+            const list = byType[type] || []
+            return {
+              id: type,
+              content: (
+                <div className="card">
+                  <div className="card-title" style={{ textTransform: 'capitalize' }}>
+                    {type}kategorier
+                    <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8, fontSize: 12 }}>
+                      {list.filter(c => c.active).length} aktive
+                    </span>
+                  </div>
+                  <div className="table-wrap">
+                    <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
+                      <thead>
+                        <tr>
+                          {prefs.orderedVisible.map(col => (
+                            <ResizableTh key={col.key} colKey={col.key} prefs={prefs}>{col.label}</ResizableTh>
+                          ))}
+                          {isAdmin && <th style={{ width: 180, whiteSpace: 'nowrap' }}>Handlinger</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {list.map(c => (
+                          <tr key={c.id} style={{ opacity: c.active ? 1 : 0.55 }}>
+                            {prefs.orderedVisible.map(col => renderCell(c, col.key))}
+                            {isAdmin && (
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                <div className="flex gap-8">
+                                  <button className="btn btn-sm btn-secondary" style={{ minWidth: 90 }}
+                                    onClick={() => { setEditCat(c); setShowModal(true) }}>✎ Rediger</button>
+                                  <button className="btn btn-sm btn-danger" disabled={deleting === c.id}
+                                    onClick={() => deleteCategory(c)}>{deleting === c.id ? '…' : 'Slett'}</button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ),
+            }
+          })
+      } />
     </div>
   )
 }

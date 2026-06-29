@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { fmtDate } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
+import { CardGrid } from '../components/CardGrid'
 import { ResizableTh } from '../components/ResizableTh'
 
 const CSV_TEMPLATE = `full_name,email,phone,payment_type,join_date,end_date,active,in_reisekasse,notes
@@ -331,8 +332,11 @@ export default function MemberRegistry() {
         </div>
       </div>
 
-      {showImport && (
-        <div className="card" style={{ marginBottom: 20 }}>
+      <CardGrid pageKey="members-register" cards={[
+        ...(showImport ? [{
+          id: 'csv-import',
+          content: (
+        <div className="card">
           <div className="card-title">CSV-import</div>
           <div style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--surface)', borderRadius: 6, fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.7 }}>
             <strong style={{ color: 'var(--dim)' }}>Påkrevd:</strong>{' '}
@@ -427,28 +431,30 @@ export default function MemberRegistry() {
             </div>
           )}
         </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input className="form-input" style={{ maxWidth: 280 }} placeholder="Søk navn…"
-          value={search} onChange={e => setSearch(e.target.value)} />
-        {[
-          { key: 'active', label: 'Aktive' },
-          { key: 'inactive', label: 'Inaktive' },
-          { key: 'reisekasse', label: 'Reisekassen' },
-          { key: 'all', label: 'Alle' },
-        ].map(f => (
-          <button key={f.key} className={`btn btn-sm ${filterActive === f.key ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setFilterActive(f.key)}>
-            {f.label}
-          </button>
-        ))}
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
-        <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
-      </div>
-
-      <div className="card">
-        <div className="table-wrap">
+          ),
+        }] : []),
+        {
+          id: 'tabell',
+          content: (
+        <div className="card">
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="form-input" style={{ maxWidth: 280 }} placeholder="Søk navn…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+            {[
+              { key: 'active', label: 'Aktive' },
+              { key: 'inactive', label: 'Inaktive' },
+              { key: 'reisekasse', label: 'Reisekassen' },
+              { key: 'all', label: 'Alle' },
+            ].map(f => (
+              <button key={f.key} className={`btn btn-sm ${filterActive === f.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setFilterActive(f.key)}>
+                {f.label}
+              </button>
+            ))}
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
+            <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
+          </div>
+          <div className="table-wrap">
           <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
             <thead>
               <tr>
@@ -479,8 +485,11 @@ export default function MemberRegistry() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
-      </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }

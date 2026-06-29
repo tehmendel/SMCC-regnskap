@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
+import { CardGrid } from '../components/CardGrid'
 
 function fmt(amount) {
   return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
@@ -320,109 +321,120 @@ export default function Transactions() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Søk beskrivelse</label>
-            <input className="form-input" placeholder="Søk…" value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Kategori</label>
-            <select className="form-select" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-              <option value="">Alle kategorier</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({countByCategory[c.id] || 0})</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Fra dato</label>
-            <input className="form-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Til dato</label>
-            <input className="form-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 4 }}>Type:</span>
-          {['alle', 'inntekt', 'utgift'].map(f => (
-            <button key={f} className={`btn btn-sm ${filterType === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilterType(f)}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-          <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 12, marginRight: 4 }}>Status:</span>
-          {['alle', 'godkjent', 'venter'].map(f => (
-            <button key={f} className={`btn btn-sm ${filterStatus === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilterStatus(f)}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-          {(search || filterCategory || filterStatus !== 'alle' || filterType !== 'alle' || dateFrom || dateTo) && (
-            <button className="btn btn-sm btn-secondary"
-              onClick={() => { setSearch(''); setFilterCategory(''); setFilterStatus('alle'); setFilterType('alle'); setDateFrom(''); setDateTo('') }}>
-              Nullstill filtre
-            </button>
-          )}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-            {isKasserer && (() => {
-              const pendingCount = filtered.filter(t => !t.approved).length
-              return pendingCount > 0 ? (
-                <button className="btn btn-sm btn-primary"
-                  disabled={bulkApproving} onClick={bulkApprove}>
-                  {bulkApproving ? 'Godkjenner…' : `Godkjenn alle (${pendingCount})`}
-                </button>
-              ) : null
-            })()}
-            <ColumnPicker prefs={prefs} />
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        {filtered.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📋</div>
-            <div className="empty-state-text">
-              {isKasserer ? 'Ingen transaksjoner. Klikk "+ Ny transaksjon" for å starte.' : 'Ingen godkjente transaksjoner å vise.'}
-            </div>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
-              <thead>
-                <tr>
-                  {prefs.orderedVisible.map(col => (
-                    <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
-                      className={col.key === 'amount' ? 'text-right' : ''}>
-                      {col.label}
-                    </ResizableTh>
-                  ))}
-                  {isKasserer && <th>Handlinger</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(t => (
-                  <tr key={t.id}>
-                    {prefs.orderedVisible.map(col => renderCell(t, col.key))}
-                    {isKasserer && (
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div className="flex gap-8">
-                          <button className="btn btn-sm btn-secondary"
-                            onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
-                          <button className="btn btn-sm btn-secondary" onClick={() => toggleApprove(t)}>
-                            {t.approved ? 'Angre' : 'Godkjenn'}
-                          </button>
-                          {isAdmin && (
-                            <button className="btn btn-sm btn-danger" onClick={() => deleteTransaction(t.id)}>Slett</button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
+      <CardGrid pageKey="transaksjoner" cards={[
+        {
+          id: 'filtre',
+          content: (
+            <div className="card" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Søk beskrivelse</label>
+                  <input className="form-input" placeholder="Søk…" value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Kategori</label>
+                  <select className="form-select" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+                    <option value="">Alle kategorier</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({countByCategory[c.id] || 0})</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Fra dato</label>
+                  <input className="form-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Til dato</label>
+                  <input className="form-input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 4 }}>Type:</span>
+                {['alle', 'inntekt', 'utgift'].map(f => (
+                  <button key={f} className={`btn btn-sm ${filterType === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilterType(f)}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 12, marginRight: 4 }}>Status:</span>
+                {['alle', 'godkjent', 'venter'].map(f => (
+                  <button key={f} className={`btn btn-sm ${filterStatus === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilterStatus(f)}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+                {(search || filterCategory || filterStatus !== 'alle' || filterType !== 'alle' || dateFrom || dateTo) && (
+                  <button className="btn btn-sm btn-secondary"
+                    onClick={() => { setSearch(''); setFilterCategory(''); setFilterStatus('alle'); setFilterType('alle'); setDateFrom(''); setDateTo('') }}>
+                    Nullstill filtre
+                  </button>
+                )}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {isKasserer && (() => {
+                    const pendingCount = filtered.filter(t => !t.approved).length
+                    return pendingCount > 0 ? (
+                      <button className="btn btn-sm btn-primary"
+                        disabled={bulkApproving} onClick={bulkApprove}>
+                        {bulkApproving ? 'Godkjenner…' : `Godkjenn alle (${pendingCount})`}
+                      </button>
+                    ) : null
+                  })()}
+                  <ColumnPicker prefs={prefs} />
+                </div>
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: 'tabell',
+          content: (
+            <div className="card">
+              {filtered.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">📋</div>
+                  <div className="empty-state-text">
+                    {isKasserer ? 'Ingen transaksjoner. Klikk "+ Ny transaksjon" for å starte.' : 'Ingen godkjente transaksjoner å vise.'}
+                  </div>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
+                    <thead>
+                      <tr>
+                        {prefs.orderedVisible.map(col => (
+                          <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
+                            className={col.key === 'amount' ? 'text-right' : ''}>
+                            {col.label}
+                          </ResizableTh>
+                        ))}
+                        {isKasserer && <th>Handlinger</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(t => (
+                        <tr key={t.id}>
+                          {prefs.orderedVisible.map(col => renderCell(t, col.key))}
+                          {isKasserer && (
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div className="flex gap-8">
+                                <button className="btn btn-sm btn-secondary"
+                                  onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
+                                <button className="btn btn-sm btn-secondary" onClick={() => toggleApprove(t)}>
+                                  {t.approved ? 'Angre' : 'Godkjenn'}
+                                </button>
+                                {isAdmin && (
+                                  <button className="btn btn-sm btn-danger" onClick={() => deleteTransaction(t.id)}>Slett</button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }

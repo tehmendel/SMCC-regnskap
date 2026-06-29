@@ -10,6 +10,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
+import { CardGrid } from '../../components/CardGrid'
 
 const EXP_COLS = [
   { key: 'date',        label: 'Dato' },
@@ -573,7 +574,10 @@ export default function ArrangementDetail() {
 
       {/* OVERSIKT */}
       {activeTab === 'oversikt' && (
-        <>
+        <CardGrid pageKey="arrangement-oversikt" cards={[
+          {
+            id: 'kart',
+            content: (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div className="card">
             <div className="card-title">Budsjett vs. faktisk per avdeling</div>
@@ -687,9 +691,12 @@ export default function ArrangementDetail() {
           </div>
         </div>
 
-        {/* Gjeststatistikk */}
-        {guests > 0 && (
-          <div className="card" style={{ gridColumn: '1 / -1' }}>
+            ),
+          },
+          ...(guests > 0 ? [{
+            id: 'gjeststatistikk',
+            content: (
+          <div className="card">
             <div className="card-title">Gjeststatistikk</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
 
@@ -761,8 +768,9 @@ export default function ArrangementDetail() {
 
             </div>
           </div>
-        )}
-        </>
+            ),
+          }] : []),
+        ]} />
       )}
 
       {/* UTGIFTER */}

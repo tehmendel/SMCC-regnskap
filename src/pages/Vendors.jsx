@@ -4,6 +4,7 @@ import { fmt, fmtDate } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
+import { CardGrid } from '../components/CardGrid'
 
 const COLUMNS = [
   { key: 'name',              label: 'Leverandør' },
@@ -263,104 +264,113 @@ export default function Vendors() {
         </div>
       </div>
 
-      {pending.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontWeight: 500 }}>Venter godkjenning</span>
-            <span style={{ background: 'var(--yellow)', color: '#000', borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
-              {pending.length}
-            </span>
-          </div>
-          <div className="card">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Leverandørnavn</th><th>Kategori</th>
-                    <th className="text-right">Transaksjoner</th><th className="text-right">Totalt</th>
-                    <th>Handlinger</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pending.map(v => (
-                    <tr key={v.id}>
-                      <td>
-                        <input className="form-input" style={{ fontSize: 13, padding: '3px 8px', minWidth: 180 }}
-                          value={getEdit(v, 'name') ?? v.name} onChange={e => setEdit(v.id, 'name', e.target.value)} />
-                      </td>
-                      <td>
-                        <select className="form-select" style={{ fontSize: 12, padding: '3px 8px' }}
-                          value={getEdit(v, 'suggested_category_id') ?? (v.suggested_category_id || '')}
-                          onChange={e => setEdit(v.id, 'suggested_category_id', e.target.value || null)}>
-                          <option value="">Ingen kategori</option>
-                          {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-                        </select>
-                      </td>
-                      <td className="text-right text-mono" style={{ fontSize: 12 }}>{v.transaction_count}</td>
-                      <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(v.total_amount)}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div className="flex gap-8">
-                          <button className="btn btn-sm btn-primary" onClick={() => approveVendor(v)}>Godkjenn</button>
-                          <button className="btn btn-sm btn-danger" onClick={() => rejectVendor(v.id)}>Avvis</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <CardGrid pageKey="leverandorer" cards={[
+        ...(pending.length > 0 ? [{
+          id: 'venter',
+          content: (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontWeight: 500 }}>Venter godkjenning</span>
+                <span style={{ background: 'var(--yellow)', color: '#000', borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
+                  {pending.length}
+                </span>
+              </div>
+              <div className="card">
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Leverandørnavn</th><th>Kategori</th>
+                        <th className="text-right">Transaksjoner</th><th className="text-right">Totalt</th>
+                        <th>Handlinger</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map(v => (
+                        <tr key={v.id}>
+                          <td>
+                            <input className="form-input" style={{ fontSize: 13, padding: '3px 8px', minWidth: 180 }}
+                              value={getEdit(v, 'name') ?? v.name} onChange={e => setEdit(v.id, 'name', e.target.value)} />
+                          </td>
+                          <td>
+                            <select className="form-select" style={{ fontSize: 12, padding: '3px 8px' }}
+                              value={getEdit(v, 'suggested_category_id') ?? (v.suggested_category_id || '')}
+                              onChange={e => setEdit(v.id, 'suggested_category_id', e.target.value || null)}>
+                              <option value="">Ingen kategori</option>
+                              {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
+                            </select>
+                          </td>
+                          <td className="text-right text-mono" style={{ fontSize: 12 }}>{v.transaction_count}</td>
+                          <td className="text-right text-mono" style={{ fontSize: 12 }}>{fmt(v.total_amount)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <div className="flex gap-8">
+                              <button className="btn btn-sm btn-primary" onClick={() => approveVendor(v)}>Godkjenn</button>
+                              <button className="btn btn-sm btn-danger" onClick={() => rejectVendor(v.id)}>Avvis</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center' }}>
-        <input className="form-input" style={{ maxWidth: 320 }} placeholder="Søk leverandør…"
-          value={search} onChange={e => setSearch(e.target.value)} />
-        <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
-      </div>
-
-      <div className="card">
-        <div className="table-wrap">
-          <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
-            <thead>
-              <tr>
-                {prefs.orderedVisible.map(col => (
-                  <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
-                    className={col.align === 'right' ? 'text-right' : ''}>
-                    {col.label}
-                  </ResizableTh>
-                ))}
-                <th style={{ width: 180, whiteSpace: 'nowrap' }}>Handlinger</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(v => {
-                const hasEdits = !!edits[v.id]
-                return (
-                  <tr key={v.id}>
-                    {prefs.orderedVisible.map(col => renderCell(v, col.key))}
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <div className="flex gap-8">
-                        {hasEdits && (
-                          <button className="btn btn-sm btn-primary" onClick={() => saveVendor(v)}>Lagre</button>
-                        )}
-                        <button className="btn btn-sm btn-secondary" onClick={() => setMergeVendor(v)}>⇢ Slå sammen</button>
-                        <button className="btn btn-sm btn-danger" onClick={() => deleteVendor(v)}>Slett</button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface)', borderRadius: 6, fontSize: 12, color: 'var(--muted)' }}>
-        <strong style={{ color: 'var(--dim)' }}>Auto-godkjenning:</strong>{' '}
-        Når aktivert for en leverandør godkjennes transaksjoner fra dem automatisk ved bankimport.
-        Konfidensscore øker automatisk (+2%) hver gang en transaksjon fra leverandøren godkjennes manuelt.
-      </div>
+          ),
+        }] : []),
+        {
+          id: 'leverandorer',
+          content: (
+            <div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center' }}>
+                <input className="form-input" style={{ maxWidth: 320 }} placeholder="Søk leverandør…"
+                  value={search} onChange={e => setSearch(e.target.value)} />
+                <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
+              </div>
+              <div className="card">
+                <div className="table-wrap">
+                  <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
+                    <thead>
+                      <tr>
+                        {prefs.orderedVisible.map(col => (
+                          <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
+                            className={col.align === 'right' ? 'text-right' : ''}>
+                            {col.label}
+                          </ResizableTh>
+                        ))}
+                        <th style={{ width: 180, whiteSpace: 'nowrap' }}>Handlinger</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(v => {
+                        const hasEdits = !!edits[v.id]
+                        return (
+                          <tr key={v.id}>
+                            {prefs.orderedVisible.map(col => renderCell(v, col.key))}
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div className="flex gap-8">
+                                {hasEdits && (
+                                  <button className="btn btn-sm btn-primary" onClick={() => saveVendor(v)}>Lagre</button>
+                                )}
+                                <button className="btn btn-sm btn-secondary" onClick={() => setMergeVendor(v)}>⇢ Slå sammen</button>
+                                <button className="btn btn-sm btn-danger" onClick={() => deleteVendor(v)}>Slett</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface)', borderRadius: 6, fontSize: 12, color: 'var(--muted)' }}>
+                <strong style={{ color: 'var(--dim)' }}>Auto-godkjenning:</strong>{' '}
+                Når aktivert for en leverandør godkjennes transaksjoner fra dem automatisk ved bankimport.
+                Konfidensscore øker automatisk (+2%) hver gang en transaksjon fra leverandøren godkjennes manuelt.
+              </div>
+            </div>
+          ),
+        },
+      ]} />
     </div>
   )
 }
