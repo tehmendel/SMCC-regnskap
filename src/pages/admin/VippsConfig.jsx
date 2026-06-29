@@ -299,11 +299,29 @@ export default function VippsConfig() {
                     {testResult.ok ? '✓ Tilkobling vellykket' : '✗ Tilkobling mislyktes'}
                   </div>
                   {testResult.ok ? (
-                    <div style={{ display: 'flex', gap: 24, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-                      <span>Miljø: <strong style={{ color: 'var(--text)' }}>{testResult.environment}</strong></span>
-                      <span>Token-type: <strong style={{ color: 'var(--text)' }}>{testResult.token_type}</strong></span>
-                      <span>Token utløper om: <strong style={{ color: 'var(--text)' }}>{testResult.expires_in_minutes} min</strong></span>
-                      <span>Responstid: <strong style={{ color: 'var(--text)' }}>{testResult.latency_ms} ms</strong></span>
+                    <div style={{ fontSize: 12 }}>
+                      <div style={{ display: 'flex', gap: 24, color: 'var(--muted)', flexWrap: 'wrap', marginBottom: 10 }}>
+                        <span>Miljø: <strong style={{ color: 'var(--text)' }}>{testResult.environment}</strong></span>
+                        <span>Token: <strong style={{ color: 'var(--green)' }}>OK ({testResult.access_token?.latency_ms ?? testResult.latency_ms} ms)</strong></span>
+                        <span>eCom-nøkkel: <strong style={{ color: 'var(--font-mono)', color: 'var(--text)' }}>…{testResult.ecom_key_suffix}</strong></span>
+                        <span>eCom-ruter: <strong style={{
+                          color: testResult.ecom_routes === 'tilgjengelig' ? 'var(--green)' : 'var(--yellow)'
+                        }}>{testResult.ecom_routes ?? '–'}</strong></span>
+                      </div>
+                      {testResult.probes?.length > 0 && (
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                          {testResult.probes.map((p, i) => (
+                            <div key={i} style={{
+                              display: 'flex', gap: 8, padding: '2px 0',
+                              color: p.status === 200 ? 'var(--green)' : p.status === 404 ? 'var(--muted)' : 'var(--yellow)',
+                            }}>
+                              <span style={{ minWidth: 60 }}>HTTP {p.status}</span>
+                              <span style={{ minWidth: 340 }}>{p.url}</span>
+                              <span>{p.note}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div style={{ fontSize: 12, color: 'var(--red)' }}>
