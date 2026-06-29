@@ -15,6 +15,7 @@ import BankImport from './pages/BankImport'
 import Members from './pages/Members'
 import MemberRegistry from './pages/MemberRegistry'
 import Reisekasse from './pages/Reisekasse'
+import CashCounts from './pages/CashCounts'
 
 function ProtectedRoute({ children, requireAdmin }) {
   const { user, profile, loading, isAdmin } = useAuth()
@@ -52,6 +53,7 @@ function Sidebar() {
       <NavItem to="/leverandorer" icon="◎" label="Leverandører" />
       <NavItem to="/medlemsavgift" icon="◈" label="Medlemsavgift" />
       <NavItem to="/reisekassen" icon="✈" label="Reisekassen" />
+      <NavItem to="/kontantbeholdning" icon="◈" label="Kontantbeholdning" />
 
       {isAdmin && (
         <>
@@ -98,6 +100,7 @@ function AppShell() {
           <Route path="/medlemsregister" element={<MemberRegistry />} />
           <Route path="/medlemsavgift" element={<Members />} />
           <Route path="/reisekassen" element={<Reisekasse />} />
+          <Route path="/kontantbeholdning" element={<CashCounts />} />
           {/* Backward compat redirect */}
           <Route path="/medlemmer" element={<Navigate to="/medlemsavgift" replace />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
