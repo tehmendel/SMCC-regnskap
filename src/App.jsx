@@ -1,5 +1,7 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from './context/AuthContext'
+import { supabase } from './supabaseClient'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
@@ -16,6 +18,16 @@ import Members from './pages/Members'
 import MemberRegistry from './pages/MemberRegistry'
 import Reisekasse from './pages/Reisekasse'
 import CashCounts from './pages/CashCounts'
+import VippsConfig from './pages/admin/VippsConfig'
+
+function useVippsEnv() {
+  const [env, setEnv] = useState(null)
+  useEffect(() => {
+    supabase.from('vipps_config').select('environment').eq('is_active', true).single()
+      .then(({ data }) => { if (data) setEnv(data.environment) })
+  }, [])
+  return env
+}
 
 function ProtectedRoute({ children, requireAdmin }) {
   const { user, profile, loading, isAdmin } = useAuth()
@@ -60,6 +72,7 @@ function Sidebar() {
           <div className="sidebar-section">Admin</div>
           <NavItem to="/brukere" icon="◉" label="Brukere" />
           <NavItem to="/logg" icon="◌" label="Endringslogg" />
+          <NavItem to="/konfigurasjon/vipps" icon="⊡" label="Vipps-konfig" />
         </>
       )}
 
@@ -76,12 +89,23 @@ function Sidebar() {
 
 function AppShell() {
   const { profile } = useAuth()
+  const vippsEnv = useVippsEnv()
+  const isTest = vippsEnv === 'test'
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <span className="topbar-logo">Sandnes MC — Regnskap</span>
         <div className="topbar-sep" />
+        {isTest && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+            background: 'var(--yellow)', color: '#000',
+            borderRadius: 6, padding: '3px 8px', marginRight: 4,
+          }}>
+            Vipps TEST
+          </span>
+        )}
         <span className="topbar-user">{profile?.full_name}</span>
         <span className="topbar-role">{profile?.role}</span>
       </header>
@@ -101,10 +125,10 @@ function AppShell() {
           <Route path="/medlemsavgift" element={<Members />} />
           <Route path="/reisekassen" element={<Reisekasse />} />
           <Route path="/kontantbeholdning" element={<CashCounts />} />
-          {/* Backward compat redirect */}
           <Route path="/medlemmer" element={<Navigate to="/medlemsavgift" replace />} />
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
+          <Route path="/konfigurasjon/vipps" element={<ProtectedRoute requireAdmin><VippsConfig /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
