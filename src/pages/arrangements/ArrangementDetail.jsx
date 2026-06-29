@@ -428,6 +428,16 @@ export default function ArrangementDetail() {
     ? arrangement.expected_participants * arrangement.ticket_price
     : null
 
+  // Per-gjest statistikk
+  const guests = arrangement.participant_count || 0
+  const revenuePerGuest   = guests > 0 ? totalRevenues / guests : null
+  const expensePerGuest   = guests > 0 ? totalExpenses / guests : null
+  const resultPerGuest    = guests > 0 ? result / guests : null
+  const vippsPerGuest     = guests > 0 && totalVipps > 0 ? totalVipps / guests : null
+  const breakEvenFactual  = revenuePerGuest > 0 ? Math.ceil(totalExpenses / revenuePerGuest) : null
+  const capacityPct       = arrangement.expected_participants > 0
+    ? Math.round((guests / arrangement.expected_participants) * 100) : null
+
   // Per avdeling
   const deptData = departments.map(d => ({
     name: d.name,
@@ -675,6 +685,82 @@ export default function ArrangementDetail() {
             )}
           </div>
         </div>
+
+        {/* Gjeststatistikk */}
+        {guests > 0 && (
+          <div className="card" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-title">Gjeststatistikk</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+
+              <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Inntekt per gjest</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>{fmt(revenuePerGuest)}</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{guests} gjester · {fmt(totalRevenues)} tot.</div>
+              </div>
+
+              <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Utgift per gjest</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--orange)' }}>{fmt(expensePerGuest)}</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{fmt(totalExpenses)} tot.</div>
+              </div>
+
+              <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Resultat per gjest</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: resultPerGuest >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                  {resultPerGuest >= 0 ? '+' : ''}{fmt(resultPerGuest)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{fmt(result)} totalt</div>
+              </div>
+
+              {vippsPerGuest && (
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Vipps per gjest</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700 }}>{fmt(vippsPerGuest)}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{fmt(totalVipps)} Vipps tot.</div>
+                </div>
+              )}
+
+              {breakEvenFactual && (
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Break-even (faktisk snitt)</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: guests >= breakEvenFactual ? 'var(--green)' : 'var(--red)' }}>
+                    {breakEvenFactual} pers.
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                    ved {fmt(revenuePerGuest)}/gjest · {guests >= breakEvenFactual ? `+${guests - breakEvenFactual} over` : `${breakEvenFactual - guests} under`}
+                  </div>
+                </div>
+              )}
+
+              {breakEvenParticipants && (
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Break-even (kun innmelding)</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: guests >= breakEvenParticipants ? 'var(--green)' : 'var(--red)' }}>
+                    {breakEvenParticipants} pers.
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>ved {fmt(arrangement.ticket_price)}/billett</div>
+                </div>
+              )}
+
+              {capacityPct !== null && (
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Kapasitetsutnyttelse</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: capacityPct >= 100 ? 'var(--green)' : capacityPct >= 75 ? 'var(--yellow)' : 'var(--orange)' }}>
+                    {capacityPct}%
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                    {guests} av {arrangement.expected_participants} forventet
+                  </div>
+                  <div style={{ height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
+                    <div style={{ width: `${Math.min(capacityPct, 100)}%`, height: '100%', borderRadius: 2,
+                      background: capacityPct >= 100 ? 'var(--green)' : capacityPct >= 75 ? 'var(--yellow)' : 'var(--orange)' }} />
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
       )}
 
       {/* UTGIFTER */}
