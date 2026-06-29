@@ -91,7 +91,7 @@ export default function Reisekasse() {
   async function load() {
     setLoading(true)
     const [mRes, pRes, rRes] = await Promise.all([
-      supabase.from('members').select('*').eq('active', true).order('full_name'),
+      supabase.from('members').select('*').order('full_name'),
       supabase.from('reisekasse_payments').select('*').eq('year', year),
       supabase.from('fee_rates').select('*').eq('fee_type', 'reisekasse').order('effective_from', { ascending: false }),
     ])
@@ -136,8 +136,9 @@ export default function Reisekasse() {
   const currentRate = feeRates[0]?.amount_monthly
   const reisekasseMembers = members.filter(m => {
     if (!m.in_reisekasse) return false
-    if (!m.end_date) return true
-    return m.end_date >= `${year}-01-01`
+    if (m.active) return true
+    if (!m.end_date) return false
+    return new Date(m.end_date).getFullYear() === year
   })
   const expectedPerMember = expectedForYear(year)
   const totalExpected = reisekasseMembers.length * expectedPerMember

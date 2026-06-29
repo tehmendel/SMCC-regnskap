@@ -69,6 +69,13 @@ function ConfidenceBar({ score }) {
   )
 }
 
+// Show active members always; inactive members only in their resignation year
+function memberVisibleInYear(m, year) {
+  if (m.active) return true
+  if (!m.end_date) return false
+  return new Date(m.end_date).getFullYear() === year
+}
+
 function getRateForMonth(feeRates, year, month) {
   const monthStart = `${year}-${String(month).padStart(2,'0')}-01`
   const rates = feeRates
@@ -295,7 +302,7 @@ export default function Members() {
     setDismissed(allTx.filter(t => !allLinkedIds.has(t.id) && t.membership_dismissed))
 
     // Re-compute all suggestions with fresh boosts and history
-    const activeMems = (mRes.data || []).filter(m => m.active)
+    const activeMems = (mRes.data || []).filter(m => memberVisibleInYear(m, year))
     const newSuggestions = {}
     for (const t of unmatchedTx) {
       const match = getBestMatch(t, activeMems, histMap, boostsMap)
@@ -305,11 +312,7 @@ export default function Members() {
     setLoading(false)
   }
 
-  const activeMembers = members.filter(m => {
-    if (!m.active) return false
-    if (!m.end_date) return true
-    return m.end_date >= `${year}-01-01`
-  })
+  const activeMembers = members.filter(m => memberVisibleInYear(m, year))
 
   async function autoMatch() {
     if (!activeMembers.length || !unmatched.length) return

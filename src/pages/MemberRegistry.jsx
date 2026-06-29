@@ -109,7 +109,11 @@ function MemberModal({ member, onClose, onSaved }) {
             <div className="form-group">
               <label className="form-label">Utmeldingsdato <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(valgfritt)</span></label>
               <input className="form-input" type="date" value={form.end_date || ''}
-                onChange={e => setForm(f => ({ ...f, end_date: e.target.value || null }))} />
+                onChange={e => setForm(f => ({
+                  ...f,
+                  end_date: e.target.value || null,
+                  active: e.target.value ? false : f.active,
+                }))} />
             </div>
             <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 22 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
