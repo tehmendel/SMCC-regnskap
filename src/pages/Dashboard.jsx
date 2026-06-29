@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { fmt } from '../lib/format'
 import { CardGrid } from '../components/CardGrid'
-
-function fmt(amount) {
-  return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
-}
+import { StatGrid, StatBox } from '../components/StatBox'
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ inntekter: 0, utgifter: 0, resultat: 0, antall: 0 })
@@ -53,26 +51,12 @@ export default function Dashboard() {
     {
       id: 'stats',
       content: (
-        <div className="stat-grid">
-          <div className="stat-box">
-            <div className="stat-label">Inntekter</div>
-            <div className="stat-value positive">{fmt(stats.inntekter)}</div>
-          </div>
-          <div className="stat-box">
-            <div className="stat-label">Utgifter</div>
-            <div className="stat-value negative">{fmt(stats.utgifter)}</div>
-          </div>
-          <div className="stat-box">
-            <div className="stat-label">Resultat</div>
-            <div className={`stat-value ${stats.resultat >= 0 ? 'positive' : 'negative'}`}>
-              {fmt(stats.resultat)}
-            </div>
-          </div>
-          <div className="stat-box">
-            <div className="stat-label">Transaksjoner</div>
-            <div className="stat-value">{stats.antall}</div>
-          </div>
-        </div>
+        <StatGrid>
+          <StatBox label="Inntekter" value={fmt(stats.inntekter)} type="positive" />
+          <StatBox label="Utgifter" value={fmt(stats.utgifter)} type="negative" />
+          <StatBox label="Resultat" value={fmt(stats.resultat)} type={stats.resultat >= 0 ? 'positive' : 'negative'} />
+          <StatBox label="Transaksjoner" value={stats.antall} />
+        </StatGrid>
       ),
     },
     {

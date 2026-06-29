@@ -6,10 +6,7 @@ import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
 import { CardGrid } from '../components/CardGrid'
-
-function fmt(amount) {
-  return new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', maximumFractionDigits: 0 }).format(amount)
-}
+import { fmt } from '../lib/format'
 
 const COLUMNS = [
   { key: 'date',        label: 'Dato' },

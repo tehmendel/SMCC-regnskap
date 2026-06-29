@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { fmt, fmtNum, MONTHS } from '../../lib/format'
+import { fmt, fmtNum, MONTHS, getYearRange } from '../../lib/format'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend
 } from 'recharts'
 import { CardGrid } from '../../components/CardGrid'
+import { StatGrid, StatBox } from '../../components/StatBox'
+import { TOOLTIP_STYLE, GRID_PROPS, AXIS_TICK, LEGEND_STYLE } from '../../lib/chartConfig'
 
-const YEARS = [2022, 2023, 2024, 2025, 2026]
+const YEARS = getYearRange(4, 1)
 const COLORS = ['#6B7280','#3B82F6','#A855F7','#E85D26','#22C55E']
 
 export default function AnnualAccounts() {
@@ -143,38 +145,20 @@ export default function AnnualAccounts() {
         {
           id: 'stats',
           content: (
-            <div className="stat-grid">
-              <div className="stat-box">
-                <div className="stat-label">Inntekter {selectedYear}</div>
-                <div className="stat-value positive">{fmt(inntekter)}</div>
-                {arrInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrInntekter)}</div>}
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Utgifter {selectedYear}</div>
-                <div className="stat-value negative">{fmt(utgifter)}</div>
-                {arrUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>herav arr. {fmt(arrUtgifter)}</div>}
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Årsresultat</div>
-                <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Total beholdning 31.12</div>
-                <div className="stat-value">{fmt(totalEndBalance)}</div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Utvikling beholdning</div>
-                <div className={`stat-value ${totalEndBalance - totalStartBalance >= 0 ? 'positive' : 'negative'}`}>
-                  {fmt(totalEndBalance - totalStartBalance)}
-                </div>
-              </div>
+            <StatGrid>
+              <StatBox label={`Inntekter ${selectedYear}`} value={fmt(inntekter)} type="positive"
+                sub={arrInntekter > 0 ? `herav arr. ${fmt(arrInntekter)}` : null} />
+              <StatBox label={`Utgifter ${selectedYear}`} value={fmt(utgifter)} type="negative"
+                sub={arrUtgifter > 0 ? `herav arr. ${fmt(arrUtgifter)}` : null} />
+              <StatBox label="Årsresultat" value={fmt(resultat)} type={resultat >= 0 ? 'positive' : 'negative'} />
+              <StatBox label="Total beholdning 31.12" value={fmt(totalEndBalance)} />
+              <StatBox label="Utvikling beholdning"
+                value={fmt(totalEndBalance - totalStartBalance)}
+                type={totalEndBalance - totalStartBalance >= 0 ? 'positive' : 'negative'} />
               {currentMembers > 0 && (
-                <div className="stat-box">
-                  <div className="stat-label">Kostnad per medlem</div>
-                  <div className="stat-value">{fmt(utgifter / currentMembers)}</div>
-                </div>
+                <StatBox label="Kostnad per medlem" value={fmt(utgifter / currentMembers)} />
               )}
-            </div>
+            </StatGrid>
           ),
         },
         {
@@ -184,11 +168,11 @@ export default function AnnualAccounts() {
               <div className="card-title">Månedlig utvikling {selectedYear}</div>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={monthlyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
-                  <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
+                  <CartesianGrid {...GRID_PROPS} />
+                  <XAxis dataKey="name" tick={AXIS_TICK} />
+                  <YAxis tick={AXIS_TICK} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={LEGEND_STYLE} />
                   <Bar dataKey="inntekter" fill="var(--green)" radius={[3,3,0,0]} />
                   <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} />
                 </BarChart>
@@ -287,11 +271,11 @@ export default function AnnualAccounts() {
               <div className="card-title">Historisk utvikling – 5 år</div>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={historicalData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="year" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
-                  <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: 'var(--dim)' }} />
+                  <CartesianGrid {...GRID_PROPS} />
+                  <XAxis dataKey="year" tick={AXIS_TICK} />
+                  <YAxis tick={AXIS_TICK} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={LEGEND_STYLE} />
                   <Line type="monotone" dataKey="inntekter" stroke="var(--green)" strokeWidth={2} dot={{ r: 4 }} />
                   <Line type="monotone" dataKey="utgifter" stroke="var(--orange)" strokeWidth={2} dot={{ r: 4 }} />
                   <Line type="monotone" dataKey="total" stroke="var(--yellow)" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 4 }} name="Total beholdning" />

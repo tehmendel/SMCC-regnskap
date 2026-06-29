@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { fmt, MONTHS, MONTH_NAMES } from '../../lib/format'
+import { fmt, MONTHS, MONTH_NAMES, getYearRange } from '../../lib/format'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
 import { CardGrid } from '../../components/CardGrid'
+import { StatGrid, StatBox } from '../../components/StatBox'
+import { TOOLTIP_STYLE, GRID_PROPS, AXIS_TICK } from '../../lib/chartConfig'
 
 const PERIODS = [
   { label: 'Måned', value: 'month' },
@@ -198,7 +200,7 @@ export default function PeriodAccounts() {
           <div className="page-sub">{range.label}</div>
         </div>
         <div className="flex gap-8">
-          {[2024, 2025, 2026].map(y => (
+          {getYearRange(1, 1).map(y => (
             <button key={y} className={`btn btn-sm ${selectedYear === y ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setSelectedYear(y)}>{y}</button>
           ))}
@@ -225,26 +227,14 @@ export default function PeriodAccounts() {
         {
           id: 'stats',
           content: (
-            <div className="stat-grid">
-              <div className="stat-box">
-                <div className="stat-label">Inntekter</div>
-                <div className="stat-value positive">{fmt(inntekter)}</div>
-                {prevInntekter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Fjorår: {fmt(prevInntekter)}</div>}
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Utgifter</div>
-                <div className="stat-value negative">{fmt(utgifter)}</div>
-                {prevUtgifter > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Fjorår: {fmt(prevUtgifter)}</div>}
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Resultat</div>
-                <div className={`stat-value ${resultat >= 0 ? 'positive' : 'negative'}`}>{fmt(resultat)}</div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-label">Antall transaksjoner</div>
-                <div className="stat-value">{filtered.length}</div>
-              </div>
-            </div>
+            <StatGrid>
+              <StatBox label="Inntekter" value={fmt(inntekter)} type="positive"
+                sub={prevInntekter > 0 ? `Fjorår: ${fmt(prevInntekter)}` : null} />
+              <StatBox label="Utgifter" value={fmt(utgifter)} type="negative"
+                sub={prevUtgifter > 0 ? `Fjorår: ${fmt(prevUtgifter)}` : null} />
+              <StatBox label="Resultat" value={fmt(resultat)} type={resultat >= 0 ? 'positive' : 'negative'} />
+              <StatBox label="Antall transaksjoner" value={filtered.length} />
+            </StatGrid>
           ),
         },
         {
@@ -255,10 +245,10 @@ export default function PeriodAccounts() {
                 <div className="card-title">Månedlig inn/ut – {selectedYear}</div>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
-                    <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <CartesianGrid {...GRID_PROPS} />
+                    <XAxis dataKey="name" tick={AXIS_TICK} />
+                    <YAxis tick={AXIS_TICK} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="inntekter" fill="var(--green)" radius={[2,2,0,0]} />
                     <Bar dataKey="utgifter" fill="var(--orange)" radius={[2,2,0,0]} />
                   </BarChart>
@@ -268,10 +258,10 @@ export default function PeriodAccounts() {
                 <div className="card-title">Akkumulert resultat – {selectedYear}</div>
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={accData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 10 }} />
-                    <YAxis tick={{ fill: 'var(--dim)', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <CartesianGrid {...GRID_PROPS} />
+                    <XAxis dataKey="name" tick={AXIS_TICK} />
+                    <YAxis tick={AXIS_TICK} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
                     <Line type="monotone" dataKey="akkumulert" stroke="var(--orange)" strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>

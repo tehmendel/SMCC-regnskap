@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { fmt } from '../lib/format'
+import { fmt, MONTHS } from '../lib/format'
 import { CardGrid } from '../components/CardGrid'
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des']
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
 
@@ -200,7 +198,7 @@ export default function Reisekasse() {
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', padding: '10px 12px', minWidth: 160, borderBottom: '1px solid var(--border)' }}>Navn</th>
-                {MONTH_NAMES.map(m => (
+                {MONTHS.map(m => (
                   <th key={m} style={{ textAlign: 'center', padding: '10px 4px', minWidth: 50, fontSize: 11, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{m}</th>
                 ))}
                 <th style={{ textAlign: 'right', padding: '10px 12px', minWidth: 120, borderBottom: '1px solid var(--border)', fontSize: 11, whiteSpace: 'nowrap' }}>
@@ -224,7 +222,7 @@ export default function Reisekasse() {
                         <div style={{ fontSize: 10, color: 'var(--red)' }}>sluttet {member.end_date}</div>
                       )}
                     </td>
-                    {MONTH_NAMES.map((_, i) => {
+                    {MONTHS.map((_, i) => {
                       const month = i + 1
                       const payment = getPayment(member.id, month)
                       const isPast = year < CURRENT_YEAR || (year === CURRENT_YEAR && month <= CURRENT_MONTH)

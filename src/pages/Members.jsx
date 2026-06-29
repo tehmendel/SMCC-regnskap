@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { fmt } from '../lib/format'
+import { fmt, MONTHS } from '../lib/format'
 import { CardGrid } from '../components/CardGrid'
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des']
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
 
@@ -199,7 +197,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
           <div className="form-group">
             <label className="form-label">Måned</label>
             <select className="form-select" value={month} onChange={e => setMonth(parseInt(e.target.value))}>
-              {MONTH_NAMES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+              {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
             </select>
           </div>
         )}
@@ -512,7 +510,7 @@ export default function Members() {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '10px 12px', minWidth: 160, borderBottom: '1px solid var(--border)' }}>Navn</th>
-              {MONTH_NAMES.map(m => (
+              {MONTHS.map(m => (
                 <th key={m} style={{ textAlign: 'center', padding: '10px 4px', minWidth: 58, fontSize: 11, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{m}</th>
               ))}
               <th style={{ textAlign: 'right', padding: '10px 12px', minWidth: 130, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', fontSize: 11 }}>
@@ -542,7 +540,7 @@ export default function Members() {
                       )}
                     </div>
                   </td>
-                  {MONTH_NAMES.map((_, i) => {
+                  {MONTHS.map((_, i) => {
                     const month = i + 1
                     const payment = getPayment(member.id, month)
                     const isPast = year < CURRENT_YEAR || (year === CURRENT_YEAR && month <= CURRENT_MONTH)

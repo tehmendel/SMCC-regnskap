@@ -11,6 +11,8 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts'
 import { CardGrid } from '../../components/CardGrid'
+import { StatGrid, StatBox } from '../../components/StatBox'
+import { TOOLTIP_STYLE, GRID_PROPS, AXIS_TICK } from '../../lib/chartConfig'
 
 const EXP_COLS = [
   { key: 'date',        label: 'Dato' },
@@ -507,14 +509,9 @@ export default function ArrangementDetail() {
       </div>
 
       {/* KPI-er */}
-      <div className="stat-grid" style={{ marginBottom: 24 }}>
-        <div className="stat-box">
-          <div className="stat-label">Inntekter</div>
-          <div className="stat-value positive">{fmt(totalRevenues)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utgifter</div>
-          <div className="stat-value negative">{fmt(totalExpenses)}</div>
+      <StatGrid style={{ marginBottom: 24 }}>
+        <StatBox label="Inntekter" value={fmt(totalRevenues)} type="positive" />
+        <StatBox label="Utgifter" value={fmt(totalExpenses)} type="negative">
           {budgetUsedPct !== null && (
             <div style={{ marginTop: 6 }}>
               <div style={{ height: 4, background: 'var(--graphite)', borderRadius: 2, overflow: 'hidden' }}>
@@ -526,36 +523,19 @@ export default function ArrangementDetail() {
               </div>
             </div>
           )}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Resultat</div>
-          <div className={`stat-value ${result >= 0 ? 'positive' : 'negative'}`}>{fmt(result)}</div>
-          {projectedRevenue && (
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
-              Forventet: {fmt(projectedRevenue - totalExpenses)}
-            </div>
-          )}
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Vipps total</div>
-          <div className="stat-value">{fmt(totalVipps)}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Utestående refusjon</div>
-          <div className={`stat-value ${outstanding > 0 ? 'negative' : ''}`}>{fmt(outstanding)}</div>
-        </div>
+        </StatBox>
+        <StatBox label="Resultat" value={fmt(result)} type={result >= 0 ? 'positive' : 'negative'}
+          sub={projectedRevenue ? `Forventet: ${fmt(projectedRevenue - totalExpenses)}` : null} />
+        <StatBox label="Vipps total" value={fmt(totalVipps)} />
+        <StatBox label="Utestående refusjon" value={fmt(outstanding)} type={outstanding > 0 ? 'negative' : undefined} />
         {breakEvenParticipants && (
-          <div className="stat-box">
-            <div className="stat-label">Break-even</div>
-            <div className={`stat-value ${(arrangement.participant_count || arrangement.expected_participants || 0) >= breakEvenParticipants ? 'positive' : 'negative'}`}>
-              {breakEvenParticipants} pers.
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
-              ved {fmt(arrangement.ticket_price)}/billett
-            </div>
-          </div>
+          <StatBox
+            label="Break-even"
+            value={`${breakEvenParticipants} pers.`}
+            type={(arrangement.participant_count || arrangement.expected_participants || 0) >= breakEvenParticipants ? 'positive' : 'negative'}
+            sub={`ved ${fmt(arrangement.ticket_price)}/billett`} />
         )}
-      </div>
+      </StatGrid>
 
       {/* Tabs */}
       <div className="flex gap-8" style={{ marginBottom: 20 }}>
@@ -589,7 +569,7 @@ export default function ArrangementDetail() {
                   <BarChart data={deptData}>
                     <XAxis dataKey="name" tick={{ fill: 'var(--dim)', fontSize: 11 }} />
                     <YAxis tick={{ fill: 'var(--dim)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="budsjett" fill="var(--graphite)" radius={[3,3,0,0]} name="Budsjett" />
                     <Bar dataKey="utgifter" fill="var(--orange)" radius={[3,3,0,0]} name="Faktisk" />
                   </BarChart>
@@ -631,7 +611,7 @@ export default function ArrangementDetail() {
                       labelLine={false}>
                       {deptData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
-                    <Tooltip formatter={v => fmt(v)} contentStyle={{ background: 'var(--steel)', border: '1px solid var(--border)' }} />
+                    <Tooltip formatter={v => fmt(v)} contentStyle={TOOLTIP_STYLE} />
                   </PieChart>
                 </ResponsiveContainer>
               )}
