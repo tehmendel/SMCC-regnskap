@@ -30,6 +30,7 @@ const REV_COLS = [
   { key: 'source',      label: 'Kilde' },
   { key: 'department',  label: 'Avdeling' },
   { key: 'amount',      label: 'Beløp' },
+  { key: 'actions',     label: 'Kobling', default: true },
 ]
 
 const LINKED_TX_COLS = [
@@ -258,6 +259,102 @@ function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) 
   )
 }
 
+function LinkTxModal({ revenue, onClose, onSaved }) {
+  const [transactions, setTransactions] = useState([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase
+        .from('transactions')
+        .select('id, date, description, amount, type, categories(name)')
+        .eq('type', 'inntekt')
+        .order('date', { ascending: false })
+      setTransactions(data || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const filtered = transactions.filter(t => {
+    const q = search.toLowerCase()
+    return (
+      t.description?.toLowerCase().includes(q) ||
+      t.date?.includes(q) ||
+      String(t.amount).includes(q)
+    )
+  })
+
+  async function link(tx) {
+    setSaving(true)
+    await supabase
+      .from('arrangement_revenues')
+      .update({ transaction_id: tx.id })
+      .eq('id', revenue.id)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 600 }}>
+        <div className="modal-title">Koble til banktransaksjon</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          Kobler: <strong>{revenue.description}</strong> — {fmt(revenue.amount)}
+        </div>
+        <input
+          className="form-input"
+          placeholder="Søk på beskrivelse, dato eller beløp…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ marginBottom: 12 }}
+          autoFocus
+        />
+        {loading ? (
+          <div className="text-muted">Laster…</div>
+        ) : (
+          <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Ingen treff</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ position: 'sticky', top: 0, background: 'var(--steel)' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Dato</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>
+                    <th style={{ width: 80 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 100).map(t => (
+                    <tr key={t.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.date}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 13 }}>
+                        {t.description}
+                        {t.categories?.name && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)' }}>{t.categories.name}</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--green)' }}>{fmt(t.amount)}</td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => link(t)}>Koble</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        <div style={{ marginTop: 12 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ArrangementDetail() {
   const { id } = useParams()
   const { isKasserer, isAdmin } = useAuth()
@@ -274,6 +371,7 @@ export default function ArrangementDetail() {
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editExpense, setEditExpense] = useState(null)
+  const [linkTarget, setLinkTarget] = useState(null)
   const [filterDept, setFilterDept] = useState('alle')
   const [loading, setLoading] = useState(true)
 
@@ -655,6 +753,13 @@ export default function ArrangementDetail() {
 
       {/* INNTEKTER */}
       {activeTab === 'inntekter' && (
+        {linkTarget && (
+          <LinkTxModal
+            revenue={linkTarget}
+            onClose={() => setLinkTarget(null)}
+            onSaved={() => { setLinkTarget(null); load() }}
+          />
+        )}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Inntekter ({revenues.length})</div>
@@ -688,6 +793,28 @@ export default function ArrangementDetail() {
                           case 'source':      return <td key={col.key}><span className="badge badge-inntekt">{r.source}</span></td>
                           case 'department':  return <td key={col.key} style={{ color: 'var(--muted)' }}>{r.arrangement_departments?.name || '—'}</td>
                           case 'amount':      return <td key={col.key} className="text-right amount-positive">{fmt(r.amount)}</td>
+                          case 'actions':     return (
+                            <td key={col.key}>
+                              {isKasserer && (
+                                r.transaction_id ? (
+                                  <button
+                                    className="btn btn-sm btn-secondary"
+                                    title="Fjern kobling til banktransaksjon"
+                                    onClick={async () => {
+                                      await supabase.from('arrangement_revenues').update({ transaction_id: null }).eq('id', r.id)
+                                      load()
+                                    }}
+                                  >⬡ Fjern</button>
+                                ) : (
+                                  <button
+                                    className="btn btn-sm btn-secondary"
+                                    title="Koble til banktransaksjon"
+                                    onClick={() => setLinkTarget(r)}
+                                  >⬡ Koble</button>
+                                )
+                              )}
+                            </td>
+                          )
                           default:            return <td key={col.key} />
                         }
                       })}
