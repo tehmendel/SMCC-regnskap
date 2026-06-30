@@ -50,6 +50,7 @@ function Modal({ onClose, onSaved, editItem }) {
     const payload = {
       ...formFields,
       amount: parseFloat(form.amount),
+      category_id: form.category_id || null,
       arrangement_id: isArrangementCategory ? (form.arrangement_id || null) : null,
       created_by: profile.id,
       updated_by: profile.id,
