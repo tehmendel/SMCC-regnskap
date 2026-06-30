@@ -50,6 +50,88 @@ function fmtRemaining(elapsed, percent) {
   return `${Math.round(rem / 60)} min gjenstår`
 }
 
+// ── CSV-parsing for Rogaland Sparebank / Eika-format ──────────────────────
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => resolve(e.target.result)
+    reader.onerror = reject
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+function parseNorwegianAmount(str) {
+  if (!str) return 0
+  const cleaned = str.trim().replace(/^"(.*)"$/, '$1').replace(/﻿/g, '')
+  if (!cleaned || cleaned === '-' || cleaned === '') return 0
+  // Norwegian format: "1 234,56" or "1.234,56" — comma=decimal, space/dot=thousands
+  const normalized = cleaned.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+  return Math.abs(parseFloat(normalized) || 0)
+}
+
+function parseNorwegianDate(str) {
+  if (!str) return null
+  const s = str.trim().replace(/^"(.*)"$/, '$1')
+  const parts = s.split('.')
+  if (parts.length === 3 && parts[2].length === 4) {
+    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+  }
+  // Already ISO format?
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  return null
+}
+
+function parseBankCSV(text) {
+  const raw = text.replace(/^﻿/, '') // strip BOM
+  const lines = raw.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) return []
+
+  // Auto-detect separator: tab or semicolon
+  const sep = lines[0].includes('\t') ? '\t' : ';'
+  const unquote = s => s.trim().replace(/^"(.*)"$/, '$1').trim()
+  const headers = lines[0].split(sep).map(unquote)
+
+  const col = name => headers.indexOf(name)
+  const get  = (cols, name) => { const i = col(name); return i >= 0 ? unquote(cols[i]) : '' }
+
+  const transactions = []
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(sep)
+    if (cols.length < 5) continue
+
+    const inn = parseNorwegianAmount(get(cols, 'Beløp inn'))
+    const ut  = parseNorwegianAmount(get(cols, 'Beløp ut'))
+    if (inn === 0 && ut === 0) continue
+
+    const isInntekt  = inn > 0
+    const amount     = isInntekt ? inn : ut
+    const rawDesc    = get(cols, 'Beskrivelse')
+    const avsender   = get(cols, 'Avsender')
+    const mottaker   = get(cols, 'Mottakernavn')
+    const melding    = get(cols, 'Melding/KID/Fakt.nr')
+    const bookedDate = get(cols, 'Bokført dato') || get(cols, 'Utført dato')
+
+    // Build description: prioritize bank description, supplement with sender/recipient
+    let description = rawDesc || (isInntekt ? avsender : mottaker) || ''
+    if (isInntekt && avsender && !description.toLowerCase().includes(avsender.toLowerCase())) {
+      description = description ? `${description} — Fra: ${avsender}` : `Fra: ${avsender}`
+    }
+
+    const date = parseNorwegianDate(bookedDate)
+    if (!date) continue
+
+    transactions.push({
+      date,
+      description: description.trim(),
+      amount,
+      type: isInntekt ? 'inntekt' : 'utgift',
+      notes: melding || '',
+    })
+  }
+  return transactions
+}
+
 export default function BankImport() {
   const { profile } = useAuth()
   const navigate = useNavigate()
@@ -142,6 +224,8 @@ export default function BankImport() {
     setFileInfo({ name: file.name, size: file.size })
     setAnalyzing(true)
 
+    const isCSV = file.name.toLowerCase().endsWith('.csv')
+
     try {
       // Duplicate check before starting timer/analysis
       const fileHash = await computeHash(file)
@@ -170,83 +254,117 @@ export default function BankImport() {
       const cats = catsRes.data || []
       setCategories(cats)
       const existingNorm = new Set((vendorsRes.data || []).map(v => normalize(v.name)))
-      const token = sessionRes.data.session?.access_token
 
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('categories', JSON.stringify(cats))
+      // ── CSV-sti: parse lokalt, ingen AI ────────────────────────────────
+      if (isCSV) {
+        addLog('CSV-fil — parser lokalt (ingen AI-analyse)…')
+        setProgress(20)
 
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-bank-statement`, {
-        method: 'POST',
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
-        body: formData,
-      })
+        const text = await readFileAsText(file)
+        setProgress(50)
 
-      if (!res.ok) {
-        let msg = `Serverfeil (${res.status})`
-        try {
-          const text = await res.text()
-          try { msg = JSON.parse(text)?.error || msg } catch { msg = text.slice(0, 200) || msg }
-        } catch (_) {}
-        throw new Error(msg)
-      }
-      if (!res.body) {
-        throw new Error('Nettleseren støtter ikke strømmende svar. Prøv Chrome eller Firefox.')
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let sseBuffer = ''
-      let finalResult = null
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (value) sseBuffer += decoder.decode(value, { stream: !done })
-
-        // When done, process everything; otherwise keep last incomplete event in buffer
-        const allParts = sseBuffer.split('\n\n')
-        const parts = done ? allParts : allParts.slice(0, -1)
-        sseBuffer = done ? '' : (allParts.at(-1) ?? '')
-
-        for (const part of parts) {
-          if (!part.trim()) continue
-          let eventType = ''
-          let eventData = ''
-          for (const line of part.split('\n')) {
-            if (line.startsWith('event: ')) eventType = line.slice(7).trim()
-            if (line.startsWith('data: ')) eventData = line.slice(6).trim()
-          }
-          if (!eventType || !eventData) continue
-
-          let data
-          try { data = JSON.parse(eventData) } catch { continue }
-
-          if (eventType === 'log') {
-            addLog(data.message)
-          } else if (eventType === 'progress') {
-            setProgress(data.percent)
-          } else if (eventType === 'result') {
-            finalResult = data
-          } else if (eventType === 'error') {
-            throw new Error(data.message)
-          }
+        const parsed = parseBankCSV(text)
+        if (parsed.length === 0) {
+          throw new Error(
+            'Fant ingen transaksjoner i CSV-filen.\n' +
+            'Kontroller at filen er eksportert fra Rogaland Sparebank / Eika nettbank.'
+          )
         }
 
-        if (done) break
+        addLog(`Fant ${parsed.length} transaksjoner`)
+        setProgress(80)
+
+        const withCats = parsed.map((t, i) => ({
+          ...t,
+          _id: i,
+          selected: true,
+          suggested_category_id: matchRule(rules, t.description, t.type) || null,
+        }))
+
+        const matched = withCats.filter(t => t.suggested_category_id).length
+        addLog(`Fullført — ${matched} av ${parsed.length} transaksjoner fikk kategori fra regler`)
+        setProgress(100)
+        setRows(withCats)
+
+      // ── PDF-sti: send til AI ────────────────────────────────────────────
+      } else {
+        const token = sessionRes.data.session?.access_token
+
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('categories', JSON.stringify(cats))
+
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-bank-statement`, {
+          method: 'POST',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+          body: formData,
+        })
+
+        if (!res.ok) {
+          let msg = `Serverfeil (${res.status})`
+          try {
+            const text = await res.text()
+            try { msg = JSON.parse(text)?.error || msg } catch { msg = text.slice(0, 200) || msg }
+          } catch (_) {}
+          throw new Error(msg)
+        }
+        if (!res.body) {
+          throw new Error('Nettleseren støtter ikke strømmende svar. Prøv Chrome eller Firefox.')
+        }
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let sseBuffer = ''
+        let finalResult = null
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (value) sseBuffer += decoder.decode(value, { stream: !done })
+
+          const allParts = sseBuffer.split('\n\n')
+          const parts = done ? allParts : allParts.slice(0, -1)
+          sseBuffer = done ? '' : (allParts.at(-1) ?? '')
+
+          for (const part of parts) {
+            if (!part.trim()) continue
+            let eventType = ''
+            let eventData = ''
+            for (const line of part.split('\n')) {
+              if (line.startsWith('event: ')) eventType = line.slice(7).trim()
+              if (line.startsWith('data: ')) eventData = line.slice(6).trim()
+            }
+            if (!eventType || !eventData) continue
+
+            let data
+            try { data = JSON.parse(eventData) } catch { continue }
+
+            if (eventType === 'log') {
+              addLog(data.message)
+            } else if (eventType === 'progress') {
+              setProgress(data.percent)
+            } else if (eventType === 'result') {
+              finalResult = data
+            } else if (eventType === 'error') {
+              throw new Error(data.message)
+            }
+          }
+
+          if (done) break
+        }
+
+        if (!finalResult) throw new Error('Ingen resultat mottatt fra serveren. Prøv igjen.')
+
+        setRows((finalResult.transactions || []).map((t, i) => ({
+          ...t,
+          _id: i,
+          selected: true,
+          suggested_category_id: t.suggested_category_id || matchRule(rules, t.description, t.type) || null,
+        })))
+        const newVendors = (finalResult.vendors || [])
+          .filter(v => v.name && !existingNorm.has(normalize(v.name)))
+          .map((v, i) => ({ ...v, _id: i, include: true }))
+        setVendorSuggestions(newVendors)
       }
-
-      if (!finalResult) throw new Error('Ingen resultat mottatt fra serveren. Prøv igjen.')
-
-      setRows((finalResult.transactions || []).map((t, i) => ({
-        ...t,
-        _id: i,
-        selected: true,
-        suggested_category_id: t.suggested_category_id || matchRule(rules, t.description, t.type) || null,
-      })))
-      const newVendors = (finalResult.vendors || [])
-        .filter(v => v.name && !existingNorm.has(normalize(v.name)))
-        .map((v, i) => ({ ...v, _id: i, include: true }))
-      setVendorSuggestions(newVendors)
 
     } catch (e) {
       const msg = e.message || 'Ukjent feil'
@@ -359,7 +477,7 @@ export default function BankImport() {
       <div className="page-header">
         <div>
           <div className="page-title">Importer kontoutskrift</div>
-          <div className="page-sub">Last opp PDF eller CSV — AI analyserer og foreslår kategorier</div>
+          <div className="page-sub">CSV fra Rogaland Sparebank nettbank (anbefalt) · PDF via AI-analyse</div>
         </div>
       </div>
 
@@ -528,7 +646,9 @@ export default function BankImport() {
         >
           <div style={{ fontSize: 36, marginBottom: 14, opacity: 0.5 }}>↑</div>
           <div style={{ fontWeight: 500, marginBottom: 6 }}>Dra og slipp kontoutskrift her</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>Støtter PDF og CSV</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+            CSV fra Rogaland Sparebank nettbank (anbefalt) · PDF (AI-analyse)
+          </div>
           <button className="btn btn-secondary" onClick={e => { e.stopPropagation(); inputRef.current?.click() }}>
             Velg fil
           </button>
