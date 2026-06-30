@@ -13,13 +13,20 @@ const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = getYearRange(2, 1)
 
 const STATUS_META = {
-  CAPTURED:   { label: 'Belastet',       color: '#27ae60' },
-  AUTHORIZED: { label: 'Reservert',      color: '#f39c12' },
-  REFUNDED:   { label: 'Refundert',      color: '#e74c3c' },
-  ABORTED:    { label: 'Avbrutt av kunde', color: '#7f8c8d' },
-  EXPIRED:    { label: 'Utløpt',         color: '#7f8c8d' },
-  TERMINATED: { label: 'Avsluttet',      color: '#7f8c8d' },
-  CREATED:    { label: 'Ikke fullført',  color: '#566573' },
+  // Report API entryType values
+  capture:             { label: 'Innbetalt',     color: '#27ae60' },
+  sale:                { label: 'Innbetalt',     color: '#27ae60' },
+  refund:              { label: 'Refundert',     color: '#e74c3c' },
+  'fees-retained':     { label: 'Gebyr',         color: '#95a5a6' },
+  'capture-reversal':  { label: 'Tilbakeføring', color: '#e67e22' },
+  payout:              { label: 'Utbetaling',    color: '#3498db' },
+  settlement:          { label: 'Oppgjør',       color: '#8e44ad' },
+  // Legacy ePayment values
+  CAPTURED:            { label: 'Belastet',      color: '#27ae60' },
+  AUTHORIZED:          { label: 'Reservert',     color: '#f39c12' },
+  REFUNDED:            { label: 'Refundert',     color: '#e74c3c' },
+  ABORTED:             { label: 'Avbrutt',       color: '#7f8c8d' },
+  EXPIRED:             { label: 'Utløpt',        color: '#7f8c8d' },
 }
 
 function statusLabel(s) { return STATUS_META[s]?.label ?? s }
@@ -86,14 +93,20 @@ export default function VippsStats() {
     return transactions.filter(t => t.msn === selectedMsn)
   }, [transactions, selectedMsn])
 
-  const captured    = useMemo(() => filtered.filter(t => t.status === 'CAPTURED'),    [filtered])
-  const authorized  = useMemo(() => filtered.filter(t => t.status === 'AUTHORIZED'),  [filtered])
-  const refunded    = useMemo(() => filtered.filter(t => t.status === 'REFUNDED'),    [filtered])
+  const isSale     = s => ['capture', 'sale', 'CAPTURED'].includes(s)
+  const isRefund   = s => ['refund', 'REFUNDED', 'capture-reversal'].includes(s)
+  const isFee      = s => s === 'fees-retained'
 
-  const totalCaptured   = captured.reduce((s, t)   => s + (t.amount_ore ?? 0), 0) / 100
+  const captured    = useMemo(() => filtered.filter(t => isSale(t.status) && (t.amount_ore ?? 0) > 0),  [filtered])
+  const authorized  = useMemo(() => filtered.filter(t => t.status === 'AUTHORIZED'),                     [filtered])
+  const refunded    = useMemo(() => filtered.filter(t => isRefund(t.status)),                            [filtered])
+  const fees        = useMemo(() => filtered.filter(t => isFee(t.status)),                               [filtered])
+
+  const totalCaptured   = captured.reduce((s, t)  => s + (t.amount_ore ?? 0), 0) / 100
   const totalAuthorized = authorized.reduce((s, t) => s + (t.amount_ore ?? 0), 0) / 100
-  const totalRefunded   = refunded.reduce((s, t)   => s + (t.amount_ore ?? 0), 0) / 100
-  const netto           = totalCaptured - totalRefunded
+  const totalRefunded   = Math.abs(refunded.reduce((s, t) => s + (t.amount_ore ?? 0), 0) / 100)
+  const totalFees       = Math.abs(fees.reduce((s, t) => s + (t.amount_ore ?? 0), 0) / 100)
+  const netto           = totalCaptured - totalRefunded - totalFees
 
   const monthlyData = useMemo(() => MONTHS.map((name, i) => {
     const m = i + 1
@@ -132,7 +145,8 @@ export default function VippsStats() {
       .sort((a, b) => b.count - a.count)
   }, [filtered])
 
-  const msnName = msn => msns.find(m => m.msn === msn)?.label || msn
+  const cleanMsn = msn => String(msn).replace(/^[^:]+:/, '')
+  const msnName = msn => msns.find(m => m.msn === cleanMsn(msn))?.label || cleanMsn(msn)
 
   if (!env) return <div className="text-muted">Laster…</div>
 
@@ -199,10 +213,10 @@ export default function VippsStats() {
               <div className="card">
                 <div className="card-title">Nøkkeltall {year}</div>
                 <StatGrid>
-                  <StatBox label="Belastet (netto)" value={fmt(netto)} type={netto >= 0 ? 'positive' : 'negative'} />
+                  <StatBox label="Netto" value={fmt(netto)} type={netto >= 0 ? 'positive' : 'negative'} />
                   <StatBox label="Total innbetalt" value={fmt(totalCaptured)} type="positive" sub={`${captured.length} transaksjoner`} />
                   <StatBox label="Refundert" value={fmt(totalRefunded)} type={totalRefunded > 0 ? 'negative' : undefined} sub={`${refunded.length} refusjoner`} />
-                  <StatBox label="Reservert (ikke belastet)" value={fmt(totalAuthorized)} sub={`${authorized.length} transaksjoner`} />
+                  <StatBox label="Gebyr" value={fmt(totalFees)} sub={`${fees.length} posteringer`} />
                   <StatBox label="Snitttransaksjon" value={captured.length > 0 ? fmt(totalCaptured / captured.length) : '—'} />
                   <StatBox label="Refusjonsrate" value={totalCaptured > 0 ? `${((totalRefunded / totalCaptured) * 100).toFixed(1)} %` : '—'} />
                 </StatGrid>
@@ -357,7 +371,7 @@ export default function VippsStats() {
                             </td>
                             <td style={{
                               textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12,
-                              color: t.status === 'REFUNDED' ? 'var(--red)' : t.status === 'CAPTURED' ? 'var(--green)' : 'var(--muted)',
+                              color: isRefund(t.status) ? 'var(--red)' : isSale(t.status) ? 'var(--green)' : 'var(--muted)',
                             }}>
                               {t.amount_ore ? fmt(t.amount_ore / 100) : '—'}
                             </td>
