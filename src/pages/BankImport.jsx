@@ -329,27 +329,68 @@ export default function BankImport() {
         // Sjekk mot eksisterende transaksjoner — unngå duplikater
         addLog('Sjekker mot eksisterende transaksjoner…')
         const sortedDates = [...withCats].map(t => t.date).sort()
+
+        // Hent eksisterende transaksjoner: 90 dager bak for å fange utlegg registrert før utbetaling
+        const extStart = new Date(sortedDates[0])
+        extStart.setDate(extStart.getDate() - 90)
+
         const { data: existing } = await supabase
           .from('transactions')
-          .select('date, amount, type, description, category_id')
-          .gte('date', sortedDates[0])
+          .select('date, amount, type, description, bank_import_id')
+          .gte('date', extStart.toISOString().slice(0, 10))
           .lte('date', sortedDates[sortedDates.length - 1])
 
+        // Sett for eksakt duplikatsjekk (kun innenfor CSV-perioden)
         const existSet = new Set(
-          (existing || []).map(t => `${t.date}|${Math.round(Number(t.amount) * 100)}|${t.type}`)
+          (existing || [])
+            .filter(t => t.date >= sortedDates[0])
+            .map(t => `${t.date}|${Math.round(Number(t.amount) * 100)}|${t.type}`)
         )
 
+        // Manuelle utgifter (ikke bankimportert) for sum-matching
+        const manualUtgift = (existing || []).filter(t => !t.bank_import_id && t.type === 'utgift')
+
+        function extractPersonName(desc) {
+          const m = (desc || '').match(/bedrterm oppgave til:\s*(.+?)(?:\s*\d|$)/i)
+          return m ? m[1].trim() : null
+        }
+
         const withDupCheck = withCats.map(t => {
+          // 1. Eksakt duplikat
           const key = `${t.date}|${Math.round(t.amount * 100)}|${t.type}`
-          const isDup = existSet.has(key)
-          return { ...t, selected: !isDup, _duplicate: isDup }
+          if (existSet.has(key)) return { ...t, selected: false, _duplicate: true }
+
+          // 2. Kombinert utbetaling — navnbasert sum-match mot manuelle utgifter
+          if (t.type === 'utgift') {
+            const name = extractPersonName(t.description)
+            if (name) {
+              const firstName = name.split(/\s+/)[0].toLowerCase()
+              const candidates = manualUtgift.filter(e =>
+                e.description.toLowerCase().includes(firstName)
+              )
+              if (candidates.length > 0) {
+                const sum = candidates.reduce((s, e) => s + Number(e.amount), 0)
+                const exact = Math.abs(sum - t.amount) < 1
+                return {
+                  ...t,
+                  selected: !exact,
+                  _composite: { count: candidates.length, sum, exact, name },
+                }
+              }
+            }
+          }
+
+          return t
         })
 
-        const dupCount = withDupCheck.filter(t => t._duplicate).length
-        const matched  = withDupCheck.filter(t => t.suggested_category_id).length
+        const dupCount       = withDupCheck.filter(t => t._duplicate).length
+        const compositeExact = withDupCheck.filter(t => t._composite?.exact).length
+        const compositePart  = withDupCheck.filter(t => t._composite && !t._composite.exact).length
+        const matched        = withDupCheck.filter(t => t.suggested_category_id).length
 
-        if (dupCount > 0)
-          addLog(`${dupCount} rader mulig duplikat av eksisterende — forhåndsavhuket`)
+        if (dupCount > 0)        addLog(`${dupCount} eksakte duplikater — forhåndsavhuket`)
+        if (compositeExact > 0)  addLog(`${compositeExact} kombinerte utbetalinger matchet eksisterende utlegg — forhåndsavhuket`)
+        if (compositePart > 0)   addLog(`${compositePart} mulige kombinerte utbetalinger — kontroller manuelt`)
         addLog(`Fullført — ${matched} av ${parsed.length} fikk kategori fra regler`)
         setProgress(100)
         setRows(withDupCheck)
@@ -845,7 +886,17 @@ export default function BankImport() {
             </span>
             {rows.filter(r => r._duplicate).length > 0 && (
               <span style={{ fontSize: 12, background: 'var(--yellow)', color: '#000', borderRadius: 6, padding: '2px 10px', fontWeight: 500 }}>
-                {rows.filter(r => r._duplicate).length} mulige duplikater avhuket — sjekk og huk av manuelt om de skal importeres
+                {rows.filter(r => r._duplicate).length} duplikater avhuket
+              </span>
+            )}
+            {rows.filter(r => r._composite?.exact).length > 0 && (
+              <span style={{ fontSize: 12, background: '#8e44ad', color: '#fff', borderRadius: 6, padding: '2px 10px', fontWeight: 500 }}>
+                {rows.filter(r => r._composite?.exact).length} kombinerte utbetalinger avhuket (utlegg allerede registrert)
+              </span>
+            )}
+            {rows.filter(r => r._composite && !r._composite.exact).length > 0 && (
+              <span style={{ fontSize: 12, background: '#e67e22', color: '#fff', borderRadius: 6, padding: '2px 10px', fontWeight: 500 }}>
+                {rows.filter(r => r._composite && !r._composite.exact).length} mulige kombinerte utbetalinger — kontroller
               </span>
             )}
           </div>
@@ -878,7 +929,19 @@ export default function BankImport() {
                         {r._duplicate && (
                           <span title="Finnes allerede i systemet med samme dato, beløp og type"
                             style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: 'var(--yellow)', color: '#000', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
-                            mulig duplikat
+                            duplikat
+                          </span>
+                        )}
+                        {r._composite?.exact && (
+                          <span title={`Summen av ${r._composite.count} manuelt registrerte utgifter for ${r._composite.name} (${Math.round(r._composite.sum).toLocaleString('nb-NO')} kr) matcher dette beløpet — trolig allerede registrert`}
+                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: '#8e44ad', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
+                            utlegg {r._composite.count} poster
+                          </span>
+                        )}
+                        {r._composite && !r._composite.exact && (
+                          <span title={`${r._composite.count} utgifter for ${r._composite.name} funnet, sum ${Math.round(r._composite.sum).toLocaleString('nb-NO')} kr — kontroller om disse dekkes av denne utbetalingen`}
+                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: '#e67e22', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
+                            ~utlegg {r._composite.count} poster
                           </span>
                         )}
                       </td>
