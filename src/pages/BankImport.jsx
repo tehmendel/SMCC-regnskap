@@ -326,10 +326,33 @@ export default function BankImport() {
           suggested_category_id: matchRule(rules, t.description, t.type) || null,
         }))
 
-        const matched = withCats.filter(t => t.suggested_category_id).length
-        addLog(`Fullført — ${matched} av ${parsed.length} transaksjoner fikk kategori fra regler`)
+        // Sjekk mot eksisterende transaksjoner — unngå duplikater
+        addLog('Sjekker mot eksisterende transaksjoner…')
+        const sortedDates = [...withCats].map(t => t.date).sort()
+        const { data: existing } = await supabase
+          .from('transactions')
+          .select('date, amount, type, description, category_id')
+          .gte('date', sortedDates[0])
+          .lte('date', sortedDates[sortedDates.length - 1])
+
+        const existSet = new Set(
+          (existing || []).map(t => `${t.date}|${Math.round(Number(t.amount) * 100)}|${t.type}`)
+        )
+
+        const withDupCheck = withCats.map(t => {
+          const key = `${t.date}|${Math.round(t.amount * 100)}|${t.type}`
+          const isDup = existSet.has(key)
+          return { ...t, selected: !isDup, _duplicate: isDup }
+        })
+
+        const dupCount = withDupCheck.filter(t => t._duplicate).length
+        const matched  = withDupCheck.filter(t => t.suggested_category_id).length
+
+        if (dupCount > 0)
+          addLog(`${dupCount} rader mulig duplikat av eksisterende — forhåndsavhuket`)
+        addLog(`Fullført — ${matched} av ${parsed.length} fikk kategori fra regler`)
         setProgress(100)
-        setRows(withCats)
+        setRows(withDupCheck)
 
       // ── PDF-sti: send til AI ────────────────────────────────────────────
       } else {
@@ -813,11 +836,18 @@ export default function BankImport() {
           )}
 
           {/* Transactions */}
-          <div style={{ fontWeight: 500, marginBottom: 10 }}>
-            Transaksjoner
-            <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-              {selectedCount} av {rows.length} valgt
+          <div style={{ fontWeight: 500, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <span>
+              Transaksjoner
+              <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
+                {selectedCount} av {rows.length} valgt
+              </span>
             </span>
+            {rows.filter(r => r._duplicate).length > 0 && (
+              <span style={{ fontSize: 12, background: 'var(--yellow)', color: '#000', borderRadius: 6, padding: '2px 10px', fontWeight: 500 }}>
+                {rows.filter(r => r._duplicate).length} mulige duplikater avhuket — sjekk og huk av manuelt om de skal importeres
+              </span>
+            )}
           </div>
           <div className="card" style={{ marginBottom: 24 }}>
             <div className="table-wrap">
@@ -843,7 +873,15 @@ export default function BankImport() {
                           onChange={e => updateRow(r._id, 'selected', e.target.checked)} />
                       </td>
                       <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.date}</td>
-                      <td style={{ maxWidth: 300, fontSize: 13 }}>{r.description}</td>
+                      <td style={{ maxWidth: 300, fontSize: 13 }}>
+                        {r.description}
+                        {r._duplicate && (
+                          <span title="Finnes allerede i systemet med samme dato, beløp og type"
+                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: 'var(--yellow)', color: '#000', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                            mulig duplikat
+                          </span>
+                        )}
+                      </td>
                       <td><span className={`badge badge-${r.type}`}>{r.type}</span></td>
                       <td className="text-right">
                         <span className={r.type === 'inntekt' ? 'amount-positive' : 'amount-negative'}>
