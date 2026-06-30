@@ -41,6 +41,10 @@ export default function VippsStats() {
   const [msns, setMsns]             = useState([])
   const [lastSync, setLastSync]     = useState(null)
   const [loading, setLoading]       = useState(true)
+  const [search, setSearch]         = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [sortCol, setSortCol]       = useState('created_at_vipps')
+  const [sortDir, setSortDir]       = useState('desc')
 
   // Resolve which env is active (for AKTIV-badge only — does not change display)
   useEffect(() => {
@@ -142,7 +146,32 @@ export default function VippsStats() {
   }, [filtered])
 
   const cleanMsn = msn => String(msn).replace(/^[^:]+:/, '')
-  const msnName = msn => msns.find(m => m.msn === cleanMsn(msn))?.label || cleanMsn(msn)
+  const msnName  = msn => msns.find(m => m.msn === cleanMsn(msn))?.label || cleanMsn(msn)
+
+  const allTypes = useMemo(() => [...new Set(filtered.map(t => t.status))].sort(), [filtered])
+
+  const tableRows = useMemo(() => {
+    let rows = [...filtered]
+    if (typeFilter !== 'all') rows = rows.filter(t => t.status === typeFilter)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      rows = rows.filter(t =>
+        (t.reference      || '').toLowerCase().includes(q) ||
+        (t.order_id       || '').toLowerCase().includes(q) ||
+        (t.description    || '').toLowerCase().includes(q) ||
+        (t.payer_name     || '').toLowerCase().includes(q) ||
+        (t.raw?.reference || '').toLowerCase().includes(q) ||
+        String(t.amount_ore / 100).includes(q)
+      )
+    }
+    rows.sort((a, b) => {
+      let av = a[sortCol] ?? '', bv = b[sortCol] ?? ''
+      if (sortCol === 'amount_ore') { av = Number(av); bv = Number(bv) }
+      const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return rows
+  }, [filtered, typeFilter, search, sortCol, sortDir])
 
   if (!env) return <div className="text-muted">Laster…</div>
 
@@ -324,60 +353,114 @@ export default function VippsStats() {
             id: 'transaksjoner',
             content: (
               <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div className="card-title" style={{ margin: 0 }}>Siste transaksjoner</div>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} totalt</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                  <div className="card-title" style={{ margin: 0 }}>
+                    Transaksjoner
+                    <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>
+                      {tableRows.length} av {filtered.length}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input
+                      className="form-input"
+                      style={{ width: 220, fontSize: 12 }}
+                      placeholder="Søk referanse, beskrivelse…"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                    />
+                    <select className="form-select" style={{ fontSize: 12 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+                      <option value="all">Alle typer</option>
+                      {allTypes.map(t => (
+                        <option key={t} value={t}>{statusLabel(t)}</option>
+                      ))}
+                    </select>
+                    {(search || typeFilter !== 'all') && (
+                      <button className="btn btn-sm btn-secondary" onClick={() => { setSearch(''); setTypeFilter('all') }}>
+                        ✕ Nullstill
+                      </button>
+                    )}
+                  </div>
                 </div>
+
                 {filtered.length === 0 ? (
                   <div style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0', textAlign: 'center' }}>Ingen transaksjoner</div>
+                ) : tableRows.length === 0 ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0', textAlign: 'center' }}>Ingen treff på søk/filter</div>
                 ) : (
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
-                          <th>Dato</th>
-                          <th>Betalingssted</th>
-                          <th>Beskrivelse</th>
-                          <th>Referanse</th>
-                          <th style={{ textAlign: 'center' }}>Status</th>
-                          <th style={{ textAlign: 'right' }}>Beløp</th>
+                          {[
+                            { col: 'created_at_vipps', label: 'Dato' },
+                            { col: 'status',           label: 'Type' },
+                            { col: null,               label: 'Ordrereferanse' },
+                            { col: 'reference',        label: 'PSP-ref' },
+                            { col: 'description',      label: 'Beskrivelse' },
+                            { col: 'msn',              label: 'Betalingssted' },
+                            { col: 'amount_ore',       label: 'Beløp', align: 'right' },
+                          ].map(({ col, label, align }) => (
+                            <th
+                              key={label}
+                              style={{ textAlign: align ?? 'left', cursor: col ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}
+                              onClick={() => {
+                                if (!col) return
+                                if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                                else { setSortCol(col); setSortDir('desc') }
+                              }}
+                            >
+                              {label}{col && sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {filtered.slice(0, 100).map(t => (
-                          <tr key={t.id}>
-                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                              {t.created_at_vipps ? new Date(t.created_at_vipps).toLocaleDateString('nb-NO') : '—'}
-                            </td>
-                            <td style={{ fontSize: 12 }}>{msnName(t.msn)}</td>
-                            <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {t.description || '—'}
-                            </td>
-                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-                              {t.reference?.slice(0, 20)}{t.reference?.length > 20 ? '…' : ''}
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <span style={{
-                                fontSize: 11, fontWeight: 600, borderRadius: 4, padding: '2px 7px',
-                                background: statusColor(t.status) + '22',
-                                color: statusColor(t.status),
+                        {tableRows.slice(0, 200).map(t => {
+                          const orderRef = t.raw?.reference || t.order_id || ''
+                          const isPositive = isSale(t.status) && (t.amount_ore ?? 0) > 0
+                          const isNeg = isRefund(t.status) || (t.amount_ore ?? 0) < 0
+                          return (
+                            <tr key={t.id}>
+                              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                {t.created_at_vipps
+                                  ? new Date(t.created_at_vipps).toLocaleString('nb-NO', { dateStyle: 'short', timeStyle: 'short' })
+                                  : '—'}
+                              </td>
+                              <td>
+                                <span style={{
+                                  fontSize: 11, fontWeight: 600, borderRadius: 4, padding: '2px 7px',
+                                  background: statusColor(t.status) + '22', color: statusColor(t.status),
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {statusLabel(t.status)}
+                                </span>
+                              </td>
+                              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                  title={orderRef}>
+                                {orderRef || '—'}
+                              </td>
+                              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                {t.reference || '—'}
+                              </td>
+                              <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                  title={t.description}>
+                                {t.description || '—'}
+                              </td>
+                              <td style={{ fontSize: 12 }}>{msnName(t.msn)}</td>
+                              <td style={{
+                                textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap',
+                                color: isNeg ? 'var(--red)' : isPositive ? 'var(--green)' : 'var(--muted)',
                               }}>
-                                {statusLabel(t.status)}
-                              </span>
-                            </td>
-                            <td style={{
-                              textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12,
-                              color: isRefund(t.status) ? 'var(--red)' : isSale(t.status) ? 'var(--green)' : 'var(--muted)',
-                            }}>
-                              {t.amount_ore ? fmt(t.amount_ore / 100) : '—'}
-                            </td>
-                          </tr>
-                        ))}
+                                {t.amount_ore != null ? fmt(t.amount_ore / 100) : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
-                    {filtered.length > 100 && (
+                    {tableRows.length > 200 && (
                       <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
-                        Viser 100 av {filtered.length} transaksjoner. Bruk MSN-filter for å avgrense.
+                        Viser 200 av {tableRows.length} treff — avgrens søk for å se mer.
                       </div>
                     )}
                   </div>
