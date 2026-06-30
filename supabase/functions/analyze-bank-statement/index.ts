@@ -22,20 +22,77 @@ Deno.serve(async (req) => {
 
       try {
         const formData = await req.formData()
-        const file = formData.get('file') as File
         const categoriesJson = formData.get('categories') as string
         const categories: Array<{ id: string; name: string; type: string }> = JSON.parse(categoriesJson)
-
-        if (!file) throw new Error('Ingen fil ble mottatt av serveren')
 
         const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
         if (!apiKey) throw new Error('ANTHROPIC_API_KEY mangler — kontakt administrator')
 
-        send('log', { message: `Fil mottatt: ${file.name} (${(file.size / 1024).toFixed(0)} KB)` })
-        send('progress', { percent: 3 })
-
         const anthropic = new Anthropic({ apiKey })
         const categoryList = categories.map(c => `- ${c.name} (${c.type})`).join('\n')
+
+        // ── JSON-modus: kategoriser pre-parsete CSV-transaksjoner ──────────
+        const txJson = formData.get('transactions') as string | null
+        if (txJson) {
+          type TxIn = { _id: number; description: string; csvType?: string; csvSubtype?: string; amount: number; type: string }
+          const txList: TxIn[] = JSON.parse(txJson)
+
+          send('log', { message: `AI kategoriserer ${txList.length} CSV-transaksjoner (Beskrivelse + Type + Undertype)…` })
+          send('progress', { percent: 10 })
+
+          const lines = txList.map(t => {
+            const dir = t.type === 'inntekt' ? '▲ Inn' : '▼ Ut'
+            const sub = [t.csvType, t.csvSubtype].filter(Boolean).join(' / ')
+            return `[${t._id}] ${dir} ${t.amount} kr — "${t.description}"${sub ? ` (${sub})` : ''}`
+          }).join('\n')
+
+          const catPrompt = `Du er regnskapsassistent for Sandnes MC (SMCC). Kategoriser disse banktransaksjonene.
+
+Tilgjengelige kategorier:
+${categoryList}
+
+Transaksjoner (retning, beløp, Beskrivelse, Type/Undertype fra bankens CSV):
+${lines}
+
+Returner KUN et JSON-array — ingen annen tekst:
+[{"_id": 0, "suggested_category_name": "eksakt kategorinavn eller null"}, ...]
+
+Regler:
+- Bruk NØYAKTIG kategorinavn fra listen — aldri avvik
+- Prioriter Beskrivelse fremfor Type/Undertype ved konflikt
+- Sett null hvis du er usikker`
+
+          const aiRes = await anthropic.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 4096,
+            messages: [{ role: 'user', content: [{ type: 'text', text: catPrompt }] }],
+          })
+
+          send('progress', { percent: 90 })
+
+          const raw = (aiRes.content[0] as Anthropic.TextBlock).text
+          const arrMatch = raw.match(/\[[\s\S]*\]/)
+          if (!arrMatch) throw new Error('AI returnerte ikke gyldig JSON-array')
+
+          type CatResult = { _id: number; suggested_category_name: string | null }
+          const aiCats: CatResult[] = JSON.parse(arrMatch[0])
+
+          const categorized = aiCats.map(item => {
+            const cat = categories.find(c => c.name === item.suggested_category_name)
+            return { _id: item._id, suggested_category_id: cat?.id ?? null }
+          })
+
+          send('progress', { percent: 100 })
+          send('result', { categorized })
+          return
+        }
+
+        // ── Fil-modus: PDF eller rå tekstfil ──────────────────────────────
+        const file = formData.get('file') as File
+        if (!file) throw new Error('Ingen fil ble mottatt av serveren')
+
+        send('log', { message: `Fil mottatt: ${file.name} (${(file.size / 1024).toFixed(0)} KB)` })
+        send('progress', { percent: 3 })
 
         const prompt = `Du er en regnskapsassistent for en norsk motorsykkelklubb. Analyser denne kontoutskriften.
 

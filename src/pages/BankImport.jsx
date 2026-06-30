@@ -76,9 +76,13 @@ function parseNorwegianAmount(str) {
   if (!str) return 0
   const cleaned = str.trim().replace(/^"(.*)"$/, '$1')
   if (!cleaned || cleaned === '-') return 0
-  // Norwegian: "1 234,56" or "1.234,56" or "-549" — space/dot=thousands, comma=decimal
-  const normalized = cleaned.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-  return parseFloat(normalized) || 0   // keep sign — caller decides direction
+  const s = cleaned.replace(/\s/g, '')        // fjern mellomrom (tusenskiller)
+  if (s.includes(',')) {
+    // Norsk format: "1.234,56" — punktum=tusen, komma=desimal
+    return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0
+  }
+  // Internasjonal / Rogaland Sparebank: "5000.00" — punktum=desimal
+  return parseFloat(s) || 0
 }
 
 function parseNorwegianDate(str) {
@@ -118,9 +122,11 @@ function parseBankCSV(text) {
 
   // Find amount columns with fallback spellings
   // Find amount column indices (try exact match on normalized header)
-  const idxInn = headers.findIndex(h => h.includes('bel') && h.includes('inn'))
-  const idxUt  = headers.findIndex(h => h.includes('bel') && h.includes('ut'))
-  const idxStatus = headers.findIndex(h => h === 'status')
+  const idxInn     = headers.findIndex(h => h.includes('bel') && h.includes('inn'))
+  const idxUt      = headers.findIndex(h => h.includes('bel') && h.includes('ut'))
+  const idxStatus  = headers.findIndex(h => h === 'status')
+  const idxType    = headers.findIndex(h => h === 'type')
+  const idxSubtype = headers.findIndex(h => h === 'undertype')
 
   if (idxInn < 0 || idxUt < 0) {
     return {
@@ -153,6 +159,8 @@ function parseBankCSV(text) {
     const mottaker   = get(cols, 'Mottakernavn')
     const melding    = get(cols, 'Melding/KID/Fakt.nr')
     const bookedDate = get(cols, 'Bokført dato') || get(cols, 'Utført dato')
+    const csvType    = getByIdx(cols, idxType)
+    const csvSubtype = getByIdx(cols, idxSubtype)
 
     let description = rawDesc || (isInntekt ? avsender : mottaker) || ''
     if (isInntekt && avsender && !description.toLowerCase().includes(avsender.toLowerCase())) {
@@ -162,9 +170,15 @@ function parseBankCSV(text) {
     const date = parseNorwegianDate(bookedDate)
     if (!date) continue
 
+    // matchText: alle relevante felt brukes av regler og AI — bredere enn bare beskrivelse
+    const matchText = [description.trim(), csvType, csvSubtype, melding].filter(Boolean).join(' ')
+
     transactions.push({
       date,
       description: description.trim(),
+      csvType:    csvType    || '',
+      csvSubtype: csvSubtype || '',
+      matchText,
       amount,
       type: isInntekt ? 'inntekt' : 'utgift',
       notes: melding || '',
@@ -296,13 +310,13 @@ export default function BankImport() {
       setCategories(cats)
       const existingNorm = new Set((vendorsRes.data || []).map(v => normalize(v.name)))
 
-      // ── CSV-sti: parse lokalt, ingen AI ────────────────────────────────
+      // ── CSV-sti: parse lokalt + AI for ukategoriserte ──────────────────
       if (isCSV) {
-        addLog('CSV-fil — parser lokalt (ingen AI-analyse)…')
-        setProgress(20)
+        addLog('CSV-fil — parser lokalt…')
+        setProgress(15)
 
         const text = await readFileAsText(file)
-        setProgress(50)
+        setProgress(35)
 
         const { transactions: parsed, diagnostics } = parseBankCSV(text)
 
@@ -317,14 +331,76 @@ export default function BankImport() {
         }
 
         addLog(`Fant ${parsed.length} bokførte transaksjoner`)
-        setProgress(80)
+        setProgress(50)
 
-        const withCats = parsed.map((t, i) => ({
+        // Regel-matching på tvers av Beskrivelse + Type + Undertype + Melding
+        let withCats = parsed.map((t, i) => ({
           ...t,
           _id: i,
           selected: true,
-          suggested_category_id: matchRule(rules, t.description, t.type) || null,
+          suggested_category_id: matchRule(rules, t.matchText, t.type) || null,
         }))
+
+        // Send ukategoriserte til AI (samme motor som PDF)
+        const unmatched = withCats.filter(t => !t.suggested_category_id)
+        if (unmatched.length > 0) {
+          addLog(`Regler fanget ${withCats.length - unmatched.length} — sender ${unmatched.length} til AI…`)
+          setProgress(60)
+          try {
+            const token = sessionRes.data.session?.access_token
+            const aiForm = new FormData()
+            aiForm.append('categories', JSON.stringify(cats))
+            aiForm.append('transactions', JSON.stringify(unmatched.map(t => ({
+              _id: t._id, description: t.description,
+              csvType: t.csvType, csvSubtype: t.csvSubtype,
+              amount: t.amount, type: t.type,
+            }))))
+
+            const aiRes = await fetch(`${SUPABASE_URL}/functions/v1/analyze-bank-statement`, {
+              method: 'POST',
+              headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+              body: aiForm,
+            })
+
+            if (aiRes.ok && aiRes.body) {
+              const reader = aiRes.body.getReader()
+              const decoder = new TextDecoder()
+              let buf = ''
+              const aiMap = {}
+
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                buf += decoder.decode(value, { stream: true })
+                const parts = buf.split('\n\n')
+                buf = parts.pop() || ''
+                for (const part of parts) {
+                  const evtLine  = part.split('\n').find(l => l.startsWith('event:'))
+                  const dataLine = part.split('\n').find(l => l.startsWith('data:'))
+                  if (!evtLine || !dataLine) continue
+                  const evtName = evtLine.replace('event:', '').trim()
+                  const payload = JSON.parse(dataLine.slice(5))
+                  if (evtName === 'log')    addLog(`AI: ${payload.message}`)
+                  if (evtName === 'result') {
+                    for (const c of (payload.categorized || []))
+                      if (c.suggested_category_id) aiMap[c._id] = c.suggested_category_id
+                  }
+                }
+              }
+
+              withCats = withCats.map(t => ({
+                ...t,
+                suggested_category_id: t.suggested_category_id || aiMap[t._id] || null,
+              }))
+              addLog(`AI kategoriserte ${Object.keys(aiMap).length} av ${unmatched.length}`)
+            }
+          } catch (aiErr) {
+            addLog(`AI-analyse feilet: ${aiErr.message} — fortsetter med regelbaserte kategorier`)
+          }
+        } else {
+          addLog(`Alle ${withCats.length} kategorisert via regler`)
+        }
+        setProgress(80)
 
         // Sjekk mot eksisterende transaksjoner — unngå duplikater
         addLog('Sjekker mot eksisterende transaksjoner…')
@@ -924,23 +1000,37 @@ export default function BankImport() {
                           onChange={e => updateRow(r._id, 'selected', e.target.checked)} />
                       </td>
                       <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.date}</td>
-                      <td style={{ maxWidth: 300, fontSize: 13 }}>
+                      <td style={{ maxWidth: 320, fontSize: 13 }}>
                         {r.description}
+                        {(r.csvType || r.csvSubtype) && (
+                          <div style={{ marginTop: 2 }}>
+                            {r.csvType && (
+                              <span style={{ fontSize: 10, background: 'var(--surface-2,#2a2a2a)', color: 'var(--muted)', borderRadius: 3, padding: '1px 4px', marginRight: 3 }}>
+                                {r.csvType}
+                              </span>
+                            )}
+                            {r.csvSubtype && (
+                              <span style={{ fontSize: 10, background: 'var(--surface-2,#2a2a2a)', color: 'var(--muted)', borderRadius: 3, padding: '1px 4px' }}>
+                                {r.csvSubtype}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {r._duplicate && (
                           <span title="Finnes allerede i systemet med samme dato, beløp og type"
-                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: 'var(--yellow)', color: '#000', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                            style={{ marginLeft: 0, marginTop: 2, display: 'inline-block', fontSize: 10, fontWeight: 600, background: 'var(--yellow)', color: '#000', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
                             duplikat
                           </span>
                         )}
                         {r._composite?.exact && (
                           <span title={`Summen av ${r._composite.count} manuelt registrerte utgifter for ${r._composite.name} (${Math.round(r._composite.sum).toLocaleString('nb-NO')} kr) matcher dette beløpet — trolig allerede registrert`}
-                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: '#8e44ad', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
+                            style={{ marginLeft: 3, fontSize: 10, fontWeight: 600, background: '#8e44ad', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
                             utlegg {r._composite.count} poster
                           </span>
                         )}
                         {r._composite && !r._composite.exact && (
                           <span title={`${r._composite.count} utgifter for ${r._composite.name} funnet, sum ${Math.round(r._composite.sum).toLocaleString('nb-NO')} kr — kontroller om disse dekkes av denne utbetalingen`}
-                            style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: '#e67e22', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
+                            style={{ marginLeft: 3, fontSize: 10, fontWeight: 600, background: '#e67e22', color: '#fff', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap', cursor: 'help' }}>
                             ~utlegg {r._composite.count} poster
                           </span>
                         )}
