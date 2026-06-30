@@ -7,6 +7,7 @@ import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
 import { CardGrid } from '../components/CardGrid'
 import { fmt } from '../lib/format'
+import { loadAllRules, matchRule } from '../lib/categorize'
 
 const COLUMNS = [
   { key: 'date',        label: 'Dato' },
@@ -161,6 +162,8 @@ export default function Transactions() {
   const [dateTo, setDateTo] = useState('')
   const [bulkApproving, setBulkApproving] = useState(false)
   const [lastImport, setLastImport] = useState(null)
+  const [autoCategorizing, setAutoCategorizing] = useState(false)
+  const [autoResult, setAutoResult] = useState(null)
 
   async function load() {
     const { data } = await supabase
@@ -210,6 +213,36 @@ export default function Transactions() {
     if (!confirm('Slett denne transaksjonen?')) return
     await supabase.from('transactions').delete().eq('id', id)
     load()
+  }
+
+  async function autoCategorize() {
+    setAutoCategorizing(true)
+    setAutoResult(null)
+    const rules = await loadAllRules()
+    const uncategorized = transactions.filter(t => !t.category_id)
+    const updates = uncategorized
+      .map(t => ({ id: t.id, category_id: matchRule(rules, t.description, t.type) }))
+      .filter(u => u.category_id)
+
+    if (updates.length === 0) {
+      setAutoResult({ count: 0, total: uncategorized.length })
+      setAutoCategorizing(false)
+      return
+    }
+
+    const byCategory = {}
+    for (const u of updates) {
+      if (!byCategory[u.category_id]) byCategory[u.category_id] = []
+      byCategory[u.category_id].push(u.id)
+    }
+    await Promise.all(
+      Object.entries(byCategory).map(([catId, ids]) =>
+        supabase.from('transactions').update({ category_id: catId, updated_by: profile.id }).in('id', ids)
+      )
+    )
+    await load()
+    setAutoResult({ count: updates.length, total: uncategorized.length })
+    setAutoCategorizing(false)
   }
 
   const countByCategory = transactions.reduce((acc, t) => {
@@ -310,6 +343,14 @@ export default function Transactions() {
               ↥ Importer kontoutskrift
             </button>
           )}
+          {isKasserer && (() => {
+            const n = transactions.filter(t => !t.category_id).length
+            return n > 0 ? (
+              <button className="btn btn-secondary" disabled={autoCategorizing} onClick={autoCategorize}>
+                {autoCategorizing ? 'Kategoriserer…' : `◈ Kategoriser automatisk (${n})`}
+              </button>
+            ) : null
+          })()}
           {isKasserer && (
             <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowModal(true) }}>
               + Ny transaksjon
@@ -317,6 +358,23 @@ export default function Transactions() {
           )}
         </div>
       </div>
+
+      {autoResult !== null && (
+        <div className="alert" style={{
+          marginBottom: 12,
+          background: autoResult.count > 0 ? 'var(--surface)' : 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 8, padding: '10px 16px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 13 }}>
+            {autoResult.count > 0
+              ? `◈ ${autoResult.count} transaksjoner fikk kategori automatisk`
+              : `Ingen regler matchet de ${autoResult.total} ukategoriserte transaksjonene`}
+          </span>
+          <button onClick={() => setAutoResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 16 }}>×</button>
+        </div>
+      )}
 
       <CardGrid pageKey="transaksjoner" cards={[
         {

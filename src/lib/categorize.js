@@ -1,5 +1,31 @@
 import { supabase } from '../supabaseClient'
 
+// Hent alle aktive regler én gang (for batch-operasjoner)
+export async function loadAllRules() {
+  const { data } = await supabase
+    .from('categorization_rules')
+    .select('*')
+    .eq('active', true)
+    .order('priority')
+  return data || []
+}
+
+// Ren funksjon — ingen async. Returnerer category_id eller null.
+export function matchRule(rules, description, transactionType) {
+  const text = (description || '').toLowerCase()
+  for (const rule of rules) {
+    if (!rule.category_id) continue
+    if (rule.transaction_type && rule.transaction_type !== transactionType) continue
+    const val = rule.match_value.toLowerCase()
+    let match = false
+    if (rule.match_type === 'contains')    match = text.includes(val)
+    else if (rule.match_type === 'starts_with') match = text.startsWith(val)
+    else if (rule.match_type === 'exact')  match = text === val
+    if (match) return rule.category_id
+  }
+  return null
+}
+
 /**
  * Kategoriseringsmotor:
  * 1. Sjekk brukerdefinerte regler (høyest prioritet)
@@ -7,7 +33,7 @@ import { supabase } from '../supabaseClient'
  * 3. Nøkkelordbasert matching
  * Returns: { category_id, department, confidence, method }
  */
-export async function categorize(description, vendorName = null) {
+export async function categorize(description, vendorName = null, transactionType = null) {
   const text = (description || '').toLowerCase().trim()
   const vendor = (vendorName || description || '').toLowerCase().trim()
 
@@ -20,6 +46,7 @@ export async function categorize(description, vendorName = null) {
 
   if (rules) {
     for (const rule of rules) {
+      if (rule.transaction_type && rule.transaction_type !== transactionType) continue
       const val = rule.match_value.toLowerCase()
       let match = false
       if (rule.match_type === 'contains') match = text.includes(val) || vendor.includes(val)

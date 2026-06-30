@@ -6,6 +6,7 @@ import { fmt } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
+import { loadAllRules, matchRule } from '../lib/categorize'
 
 const HISTORY_COLS = [
   { key: 'filename',    label: 'Fil' },
@@ -159,10 +160,11 @@ export default function BankImport() {
       setAnalyzeStart(Date.now())
       startTimer()
 
-      const [catsRes, vendorsRes, sessionRes] = await Promise.all([
+      const [catsRes, vendorsRes, sessionRes, rules] = await Promise.all([
         supabase.from('categories').select('*').eq('active', true).order('name'),
         supabase.from('vendors').select('name'),
         supabase.auth.getSession(),
+        loadAllRules(),
       ])
       fileHashRef.current = fileHash
       const cats = catsRes.data || []
@@ -235,7 +237,12 @@ export default function BankImport() {
 
       if (!finalResult) throw new Error('Ingen resultat mottatt fra serveren. Prøv igjen.')
 
-      setRows((finalResult.transactions || []).map((t, i) => ({ ...t, _id: i, selected: true })))
+      setRows((finalResult.transactions || []).map((t, i) => ({
+        ...t,
+        _id: i,
+        selected: true,
+        suggested_category_id: t.suggested_category_id || matchRule(rules, t.description, t.type) || null,
+      })))
       const newVendors = (finalResult.vendors || [])
         .filter(v => v.name && !existingNorm.has(normalize(v.name)))
         .map((v, i) => ({ ...v, _id: i, include: true }))
