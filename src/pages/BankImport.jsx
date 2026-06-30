@@ -53,21 +53,32 @@ function fmtRemaining(elapsed, percent) {
 // ── CSV-parsing for Rogaland Sparebank / Eika-format ──────────────────────
 
 function readFileAsText(file) {
+  // Try UTF-8; if replacement char U+FFFD appears, fall back to ISO-8859-1
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = e => resolve(e.target.result)
-    reader.onerror = reject
-    reader.readAsText(file, 'utf-8')
+    const r1 = new FileReader()
+    r1.onload = e => {
+      const text = e.target.result
+      if (text.includes('�')) {
+        const r2 = new FileReader()
+        r2.onload = e2 => resolve(e2.target.result)
+        r2.onerror = reject
+        r2.readAsText(file, 'iso-8859-1')
+      } else {
+        resolve(text)
+      }
+    }
+    r1.onerror = reject
+    r1.readAsText(file, 'utf-8')
   })
 }
 
 function parseNorwegianAmount(str) {
   if (!str) return 0
-  const cleaned = str.trim().replace(/^"(.*)"$/, '$1').replace(/﻿/g, '')
-  if (!cleaned || cleaned === '-' || cleaned === '') return 0
-  // Norwegian format: "1 234,56" or "1.234,56" — comma=decimal, space/dot=thousands
+  const cleaned = str.trim().replace(/^"(.*)"$/, '$1')
+  if (!cleaned || cleaned === '-') return 0
+  // Norwegian: "1 234,56" or "1.234,56" or "-549" — space/dot=thousands, comma=decimal
   const normalized = cleaned.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-  return Math.abs(parseFloat(normalized) || 0)
+  return parseFloat(normalized) || 0   // keep sign — caller decides direction
 }
 
 function parseNorwegianDate(str) {
@@ -77,42 +88,72 @@ function parseNorwegianDate(str) {
   if (parts.length === 3 && parts[2].length === 4) {
     return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
   }
-  // Already ISO format?
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   return null
+}
+
+// Normalize header name: lowercase, collapse whitespace, remove invisible chars
+function normHeader(s) {
+  return s.replace(/[﻿\r]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function parseBankCSV(text) {
   const raw = text.replace(/^﻿/, '') // strip BOM
   const lines = raw.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) return []
+  if (lines.length < 2) return { transactions: [], diagnostics: 'Filen har færre enn 2 linjer' }
 
-  // Auto-detect separator: tab or semicolon
-  const sep = lines[0].includes('\t') ? '\t' : ';'
-  const unquote = s => s.trim().replace(/^"(.*)"$/, '$1').trim()
-  const headers = lines[0].split(sep).map(unquote)
+  // Auto-detect separator: tab → semicolon → comma
+  const firstLine = lines[0]
+  const sep = firstLine.includes('\t') ? '\t'
+            : firstLine.includes(';')  ? ';'
+            : ','
 
-  const col = name => headers.indexOf(name)
-  const get  = (cols, name) => { const i = col(name); return i >= 0 ? unquote(cols[i]) : '' }
+  const unquote = s => s.replace(/^"(.*)"$/, '$1').trim()
+  const rawHeaders = lines[0].split(sep).map(unquote)
+  const headers    = rawHeaders.map(normHeader)
+
+  // Flexible column lookup — matches by normalized name
+  const col  = name => headers.indexOf(normHeader(name))
+  const get  = (cols, name) => { const i = col(name); return i >= 0 ? unquote(cols[i] || '') : '' }
+
+  // Find amount columns with fallback spellings
+  // Find amount column indices (try exact match on normalized header)
+  const idxInn = headers.findIndex(h => h.includes('bel') && h.includes('inn'))
+  const idxUt  = headers.findIndex(h => h.includes('bel') && h.includes('ut'))
+  const idxStatus = headers.findIndex(h => h === 'status')
+
+  if (idxInn < 0 || idxUt < 0) {
+    return {
+      transactions: [],
+      diagnostics: `Fant ikke beløpskolonner. Kolonner (${rawHeaders.length}): ${rawHeaders.slice(0, 8).join(' | ')} …`
+    }
+  }
+
+  const getByIdx = (cols, idx) => idx >= 0 ? unquote(cols[idx] || '') : ''
 
   const transactions = []
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(sep)
     if (cols.length < 5) continue
 
-    const inn = parseNorwegianAmount(get(cols, 'Beløp inn'))
-    const ut  = parseNorwegianAmount(get(cols, 'Beløp ut'))
-    if (inn === 0 && ut === 0) continue
+    // Hopp over reserverte transaksjoner
+    const status = getByIdx(cols, idxStatus).toLowerCase()
+    if (status === 'reservert') continue
 
-    const isInntekt  = inn > 0
-    const amount     = isInntekt ? inn : ut
+    const inn = parseNorwegianAmount(getByIdx(cols, idxInn))  // positiv eller 0
+    const ut  = parseNorwegianAmount(getByIdx(cols, idxUt))   // negativ eller 0
+
+    const isInntekt = inn > 0
+    const isUtgift  = ut < 0
+    if (!isInntekt && !isUtgift) continue
+
+    const amount     = isInntekt ? inn : Math.abs(ut)
     const rawDesc    = get(cols, 'Beskrivelse')
     const avsender   = get(cols, 'Avsender')
     const mottaker   = get(cols, 'Mottakernavn')
     const melding    = get(cols, 'Melding/KID/Fakt.nr')
     const bookedDate = get(cols, 'Bokført dato') || get(cols, 'Utført dato')
 
-    // Build description: prioritize bank description, supplement with sender/recipient
     let description = rawDesc || (isInntekt ? avsender : mottaker) || ''
     if (isInntekt && avsender && !description.toLowerCase().includes(avsender.toLowerCase())) {
       description = description ? `${description} — Fra: ${avsender}` : `Fra: ${avsender}`
@@ -129,7 +170,7 @@ function parseBankCSV(text) {
       notes: melding || '',
     })
   }
-  return transactions
+  return { transactions, diagnostics: null }
 }
 
 export default function BankImport() {
@@ -263,15 +304,19 @@ export default function BankImport() {
         const text = await readFileAsText(file)
         setProgress(50)
 
-        const parsed = parseBankCSV(text)
+        const { transactions: parsed, diagnostics } = parseBankCSV(text)
+
+        if (diagnostics) addLog(`Info: ${diagnostics}`)
+
         if (parsed.length === 0) {
           throw new Error(
-            'Fant ingen transaksjoner i CSV-filen.\n' +
-            'Kontroller at filen er eksportert fra Rogaland Sparebank / Eika nettbank.'
+            diagnostics
+              ? `Kunne ikke lese CSV: ${diagnostics}`
+              : 'Fant ingen bokførte transaksjoner i CSV-filen. Kontroller at filen er eksportert fra Rogaland Sparebank / Eika nettbank.'
           )
         }
 
-        addLog(`Fant ${parsed.length} transaksjoner`)
+        addLog(`Fant ${parsed.length} bokførte transaksjoner`)
         setProgress(80)
 
         const withCats = parsed.map((t, i) => ({
