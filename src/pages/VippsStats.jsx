@@ -33,8 +33,8 @@ function statusLabel(s) { return STATUS_META[s]?.label ?? s }
 function statusColor(s) { return STATUS_META[s]?.color ?? 'var(--muted)' }
 
 export default function VippsStats() {
-  const [env, setEnv]               = useState(null)
-  const [activeEnv, setActiveEnv]   = useState('test')
+  const [env, setEnv]               = useState('prod')
+  const [activeEnv, setActiveEnv]   = useState('prod')
   const [year, setYear]             = useState(CURRENT_YEAR)
   const [selectedMsn, setSelectedMsn] = useState('all')
   const [transactions, setTransactions] = useState([])
@@ -42,14 +42,10 @@ export default function VippsStats() {
   const [lastSync, setLastSync]     = useState(null)
   const [loading, setLoading]       = useState(true)
 
-  // Resolve active env on mount
+  // Resolve which env is active (for AKTIV-badge only — does not change display)
   useEffect(() => {
     supabase.from('vipps_config').select('environment').eq('is_active', true).single()
-      .then(({ data }) => {
-        const e = data?.environment ?? 'test'
-        setActiveEnv(e)
-        setEnv(e)
-      })
+      .then(({ data }) => { if (data?.environment) setActiveEnv(data.environment) })
   }, [])
 
   useEffect(() => {
