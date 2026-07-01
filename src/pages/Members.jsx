@@ -68,11 +68,12 @@ function ConfidenceBar({ score }) {
   )
 }
 
-// Show active members always; inactive members only in their resignation year
+// Active members always visible (from join year); inactive members visible for all years they were a member
 function memberVisibleInYear(m, year) {
+  if (m.join_date && new Date(m.join_date).getFullYear() > year) return false
   if (m.active) return true
   if (!m.end_date) return false
-  return new Date(m.end_date).getFullYear() === year
+  return new Date(m.end_date).getFullYear() >= year
 }
 
 function getRateForMonth(feeRates, year, month) {
