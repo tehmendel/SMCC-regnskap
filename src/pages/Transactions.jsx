@@ -299,10 +299,23 @@ export default function Transactions() {
     setAutoCategorizing(false)
   }
 
+  function matchesSearch(t, q) {
+    const s = q.toLowerCase()
+    return [
+      t.description,
+      t.notes,
+      t.categories?.name,
+      t.arrangements?.name,
+      t.type,
+      t.date,
+      String(t.amount),
+    ].some(v => v?.toLowerCase().includes(s))
+  }
+
   const countByCategory = transactions.reduce((acc, t) => {
     if (filterType !== 'alle' && t.type !== filterType) return acc
     if (filterStatus !== 'alle' && (filterStatus === 'godkjent') !== t.approved) return acc
-    if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return acc
+    if (search && !matchesSearch(t, search)) return acc
     if (dateFrom && t.date < dateFrom) return acc
     if (dateTo && t.date > dateTo) return acc
     const key = t.category_id || '__ingen__'
@@ -314,7 +327,7 @@ export default function Transactions() {
     if (filterType !== 'alle' && t.type !== filterType) return false
     if (filterCategory && t.category_id !== filterCategory) return false
     if (filterStatus !== 'alle' && (filterStatus === 'godkjent') !== t.approved) return false
-    if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !matchesSearch(t, search)) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
     return true
