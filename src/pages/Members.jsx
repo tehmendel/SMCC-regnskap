@@ -247,7 +247,7 @@ export default function Members() {
     const { data: mCats } = await supabase
       .from('categories')
       .select('id, name')
-      .in('name', ['Medlemskontingent', 'Medlemsagift reisekassen'])
+      .in('name', ['Medlemsavgift SMCC', 'Medlemsavgift reisekassen'])
     const membershipCatIds = (mCats || []).map(c => c.id)
 
     const [mRes, pRes, tRes, hRes, rRes, bRes] = await Promise.all([
@@ -601,7 +601,7 @@ export default function Members() {
             <div style={{ fontWeight: 500 }}>
               Ufordelte innbetalinger
               <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} med kategori «Medlemskontingent» — ikke koblet til noe medlem
+                {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} med kategori «Medlemsavgift SMCC» — ikke koblet til noe medlem
               </span>
             </div>
             {isKasserer && (
