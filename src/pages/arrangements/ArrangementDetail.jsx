@@ -460,6 +460,7 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
   async function save(e) {
     e.preventDefault()
     setSaving(true)
+    await supabase.from('arrangement_expenses').delete().in('id', [a.id, b.id])
     const { error } = await supabase.from('arrangement_expenses').insert({
       ...form,
       amount: parseFloat(form.amount),
@@ -470,7 +471,6 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
       updated_by: profile.id,
     })
     if (error) { setError(error.message); setSaving(false); return }
-    await supabase.from('arrangement_expenses').delete().in('id', [a.id, b.id])
     onSaved(); onClose()
   }
 
