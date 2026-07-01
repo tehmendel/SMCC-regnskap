@@ -482,6 +482,43 @@ export default function BankImport() {
         setProgress(100)
         setRows(withDupCheck)
 
+        // Bygg leverandørforslag fra CSV — samme logikk som PDF-flyten
+        function guessVendorName(desc) {
+          const d = (desc || '').trim()
+          // Bankoverføring: "SELSKAPSNAVN (kontonummer)"
+          const bank = d.match(/^(.+?)\s*\(\d{9,11}\)$/)
+          if (bank) return bank[1].trim()
+          // Kortbetaling: "DD.MM BUTIKKNAVN ADRESSE BY"
+          const card = d.match(/^\d{2}\.\d{2}\s+(.+)$/)
+          if (card) {
+            const parts = card[1].split(/\s+/)
+            const addrRe = /^\d|\bveien?\b|\bgaten?\b|\bgata\b|\bvegen?\b|\bstien?\b|\btorget\b|\bplassen?\b/i
+            const name = []
+            for (const w of parts) { if (addrRe.test(w)) break; name.push(w) }
+            return (name.length > 0 ? name : parts.slice(0, 2)).join(' ')
+          }
+          return d.split(/\s+/).slice(0, 3).join(' ')
+        }
+
+        const memberCatIds = new Set([memberData.membershipCatId, memberData.reisekasseCatId].filter(Boolean))
+        const vendorMap = {}
+        for (const t of withDupCheck) {
+          if (!t.suggested_category_id) continue
+          if (memberCatIds.has(t.suggested_category_id)) continue
+          const vname = guessVendorName(t.description)
+          if (!vname || vname.length < 3) continue
+          const norm = normalize(vname)
+          if (existingNorm.has(norm)) continue
+          if (!vendorMap[norm]) vendorMap[norm] = { name: vname, suggested_category_id: t.suggested_category_id, transaction_count: 0, total_amount: 0 }
+          vendorMap[norm].transaction_count++
+          vendorMap[norm].total_amount += Number(t.amount)
+        }
+        const csvVendors = Object.values(vendorMap).map((v, i) => ({ ...v, _id: i, include: v.transaction_count >= 2 }))
+        if (csvVendors.length > 0) {
+          setVendorSuggestions(csvVendors)
+          addLog(`${csvVendors.length} potensielle nye leverandører funnet — se leverandørforslag nedenfor`)
+        }
+
       // ── PDF-sti: send til AI ────────────────────────────────────────────
       } else {
         const token = sessionRes.data.session?.access_token
