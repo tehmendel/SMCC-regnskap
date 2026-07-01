@@ -154,13 +154,17 @@ function FeeRateModal({ currentRate, onClose, onSaved }) {
   )
 }
 
-function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemberId = '' }) {
+function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId = '' }) {
   const [memberId, setMemberId] = useState(suggestedMemberId)
-  // Always derive year and month from the transaction's own date
-  const txYear = new Date(transaction.date).getFullYear()
-  const [month, setMonth] = useState(new Date(transaction.date).getMonth() + 1)
+  const txDateYear = new Date(transaction.date).getFullYear()
+  const txMonth = new Date(transaction.date).getMonth() + 1
+  const [month, setMonth] = useState(txMonth)
+  const [payYear, setPayYear] = useState(txDateYear)
   const [saving, setSaving] = useState(false)
   const selected = members.find(m => m.id === memberId)
+
+  // When member changes to yearly, warn if date is in Jan (could be prior-year payment)
+  const isJanYearly = selected?.payment_type === 'yearly' && txMonth === 1
 
   async function save() {
     if (!memberId) return
@@ -172,7 +176,7 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
     }
     await supabase.from('member_payments').insert({
       member_id: memberId,
-      year: txYear,
+      year: payYear,
       month: selected?.payment_type === 'yearly' ? null : month,
       amount: transaction.amount,
       payment_date: transaction.date,
@@ -205,8 +209,18 @@ function LinkModal({ transaction, members, year, onClose, onSaved, suggestedMemb
           </div>
         )}
         {selected?.payment_type === 'yearly' && (
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-            Årsbetalingen dekker alle måneder i {year}.
+          <div className="form-group">
+            <label className="form-label">Gjelder år</label>
+            <select className="form-select" value={payYear} onChange={e => setPayYear(parseInt(e.target.value))}>
+              <option value={txDateYear - 1}>{txDateYear - 1}</option>
+              <option value={txDateYear}>{txDateYear}</option>
+              <option value={txDateYear + 1}>{txDateYear + 1}</option>
+            </select>
+            {isJanYearly && payYear === txDateYear && (
+              <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4 }}>
+                Transaksjonen er datert januar — sjekk om betalingen gjelder {txDateYear - 1} i stedet.
+              </div>
+            )}
           </div>
         )}
         <div className="flex gap-8">
@@ -344,6 +358,12 @@ export default function Members() {
           continue
         }
 
+        // Yearly payers in January may belong to prior year — require manual year selection
+        if (match.member.payment_type === 'yearly' && txMonth === 1) {
+          newSuggestions[tx.id] = match
+          continue
+        }
+
         if (!tx.approved) {
           await supabase.from('transactions').update({
             approved: true, approved_at: new Date().toISOString(),
@@ -452,7 +472,6 @@ export default function Members() {
         <LinkModal
           transaction={linkTx}
           members={activeMembers}
-          year={year}
           suggestedMemberId={linkSuggestedId}
           onClose={() => { setLinkTx(null); setLinkSuggestedId('') }}
           onSaved={load}
