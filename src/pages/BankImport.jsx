@@ -172,6 +172,8 @@ function parseBankCSV(text) {
   const idxStatus  = headers.findIndex(h => h === 'status')
   const idxType    = headers.findIndex(h => h === 'type')
   const idxSubtype = headers.findIndex(h => h === 'undertype')
+  const idxKonto   = headers.findIndex(h => h === 'kontonummer' || h === 'til konto' || h === 'fra konto' || (h.includes('konto') && !h.includes('inn') && !h.includes('ut')))
+  const idxSaldo   = headers.findIndex(h => h === 'saldo')
 
   if (idxInn < 0 || idxUt < 0) {
     return {
@@ -183,6 +185,8 @@ function parseBankCSV(text) {
   const getByIdx = (cols, idx) => idx >= 0 ? unquote(cols[idx] || '') : ''
 
   const transactions = []
+  let accountNumber = ''
+  let lastBalance   = null
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(sep)
     if (cols.length < 5) continue
@@ -218,6 +222,16 @@ function parseBankCSV(text) {
     // matchText: alle relevante felt brukes av regler og AI — bredere enn bare beskrivelse
     const matchText = [description.trim(), csvType, csvSubtype, melding].filter(Boolean).join(' ')
 
+    // Plukk opp kontonummer (første gang) og løpende saldo
+    if (idxKonto >= 0 && !accountNumber) {
+      const k = getByIdx(cols, idxKonto).replace(/\s/g, '')
+      if (/^\d{11}$/.test(k)) accountNumber = k
+    }
+    if (idxSaldo >= 0) {
+      const s = parseNorwegianAmount(getByIdx(cols, idxSaldo))
+      if (s !== 0) lastBalance = s
+    }
+
     transactions.push({
       date,
       description: description.trim(),
@@ -229,7 +243,7 @@ function parseBankCSV(text) {
       notes: melding || '',
     })
   }
-  return { transactions, diagnostics: null }
+  return { transactions, diagnostics: null, accountNumber, lastBalance }
 }
 
 export default function BankImport() {
@@ -246,6 +260,7 @@ export default function BankImport() {
   const [analyzeStart, setAnalyzeStart] = useState(null)
   const [rows, setRows] = useState([])
   const [detailRow, setDetailRow] = useState(null)
+  const [detectedAccount, setDetectedAccount] = useState(null)   // { id, name, accountNumber, lastBalance }
   const [vendorSuggestions, setVendorSuggestions] = useState([])
   const [categories, setCategories] = useState([])
   const [error, setError] = useState('')
@@ -365,9 +380,21 @@ export default function BankImport() {
         const text = await readFileAsText(file)
         setProgress(35)
 
-        const { transactions: parsed, diagnostics } = parseBankCSV(text)
+        const { transactions: parsed, diagnostics, accountNumber, lastBalance } = parseBankCSV(text)
 
         if (diagnostics) addLog(`Info: ${diagnostics}`)
+
+        // Match kontonummer mot bank_accounts
+        if (accountNumber) {
+          const { data: bankAccounts } = await supabase.from('bank_accounts').select('id, name, account_number').eq('active', true)
+          const match = (bankAccounts || []).find(a => a.account_number?.replace(/\s/g, '') === accountNumber)
+          if (match) {
+            setDetectedAccount({ ...match, lastBalance })
+            addLog(`Konto gjenkjent: ${match.name} (${accountNumber.replace(/(\d{4})(\d{2})(\d{5})/, '$1 $2 $3')})`)
+          } else {
+            addLog(`Kontonummer ${accountNumber} ikke funnet i bankkontoregisteret`)
+          }
+        }
 
         if (parsed.length === 0) {
           throw new Error(
@@ -712,11 +739,25 @@ export default function BankImport() {
         approved_at: autoApprove ? new Date().toISOString() : null,
         bank_import_id: importId,
         vendor_id: matched?.id || null,
+        bank_account_id: detectedAccount?.id || null,
       }
     })
 
     const { error: txErr } = await supabase.from('transactions').insert(txPayload)
     if (txErr) { setError(txErr.message); setImporting(false); return }
+
+    // Oppdater account_balances for siste måned i importen
+    if (detectedAccount?.id && detectedAccount?.lastBalance != null) {
+      const dates = selected.map(r => r.date).sort()
+      const lastDate = new Date(dates[dates.length - 1])
+      await supabase.from('account_balances').upsert({
+        account_id: detectedAccount.id,
+        year: lastDate.getFullYear(),
+        month: lastDate.getMonth() + 1,
+        balance: detectedAccount.lastBalance,
+        notes: `Auto-oppdatert ved import ${new Date().toLocaleDateString('nb-NO')}`,
+      }, { onConflict: 'account_id,year,month' })
+    }
 
     const vendorsToSave = vendorSuggestions.filter(v => v.include && v.name?.trim())
     if (vendorsToSave.length > 0) {
@@ -737,6 +778,7 @@ export default function BankImport() {
 
     setImportDone(selected.length)
     setRows([])
+    setDetectedAccount(null)
     setVendorSuggestions([])
     setImporting(false)
   }
@@ -1018,6 +1060,20 @@ export default function BankImport() {
 
       {rows.length > 0 && (
         <>
+          {detectedAccount && (
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Konto gjenkjent:</span>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{detectedAccount.name}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                {detectedAccount.account_number}
+              </span>
+              {detectedAccount.lastBalance != null && (
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  · Saldo etter siste transaksjon: <strong>{Number(detectedAccount.lastBalance).toLocaleString('nb-NO', { minimumFractionDigits: 2 })} kr</strong>
+                </span>
+              )}
+            </div>
+          )}
           {/* Collapsed log summary */}
           {logs.length > 0 && (
             <details style={{ marginBottom: 16 }}>

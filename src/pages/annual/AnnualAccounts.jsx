@@ -119,7 +119,21 @@ export default function AnnualAccounts() {
   }
 
   // Sluttsaldo for valgt år
-  const endBalances = yearBalances.filter(b => b.month === 12)
+  // Utgående: bruk desember hvis tilgjengelig, ellers siste tilgjengelige måned for året
+  const endBalances = (() => {
+    const dec = yearBalances.filter(b => b.month === 12)
+    if (dec.length > 0) return dec
+    // Finn siste tilgjengelige måned per konto
+    const byAccount = {}
+    for (const b of yearBalances.filter(b => b.month > 0)) {
+      if (!byAccount[b.account_id] || b.month > byAccount[b.account_id].month) {
+        byAccount[b.account_id] = b
+      }
+    }
+    return Object.values(byAccount)
+  })()
+  const endMonth = endBalances.length > 0 ? Math.max(...endBalances.map(b => b.month)) : 12
+  const endLabel = endMonth === 12 ? '31.12' : `${String(endMonth).padStart(2, '0')}.${selectedYear} (løpende)`
   const totalEndBalance = endBalances.reduce((s, b) => s + Number(b.balance), 0)
   const startBalances = balances.filter(b => b.year === selectedYear && b.month === 0)
   const totalStartBalance = startBalances.reduce((s, b) => s + Number(b.balance), 0)
@@ -151,7 +165,7 @@ export default function AnnualAccounts() {
               <StatBox label={`Utgifter ${selectedYear}`} value={fmt(utgifter)} type="negative"
                 sub={arrUtgifter > 0 ? `herav arr. ${fmt(arrUtgifter)}` : null} />
               <StatBox label="Årsresultat" value={fmt(resultat)} type={resultat >= 0 ? 'positive' : 'negative'} />
-              <StatBox label="Total beholdning 31.12" value={fmt(totalEndBalance)} />
+              <StatBox label={`Total beholdning (${endLabel})`} value={fmt(totalEndBalance)} />
               <StatBox label="Utvikling beholdning"
                 value={fmt(totalEndBalance - totalStartBalance)}
                 type={totalEndBalance - totalStartBalance >= 0 ? 'positive' : 'negative'} />
@@ -188,7 +202,7 @@ export default function AnnualAccounts() {
                 <div className="card-title">Beholdning per konto</div>
                 <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Konto</th><th className="text-right">Inngående</th><th className="text-right">Utgående</th><th className="text-right">Endring</th></tr></thead>
+                    <thead><tr><th>Konto</th><th className="text-right">Inngående</th><th className="text-right">Utgående ({endLabel})</th><th className="text-right">Endring</th></tr></thead>
                     <tbody>
                       {accounts.map(acc => {
                         const start = startBalances.find(b => b.bank_accounts?.name === acc)?.balance || 0
