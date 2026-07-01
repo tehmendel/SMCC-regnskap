@@ -75,7 +75,6 @@ function memberVisibleInYear(m, year) {
   return new Date(m.end_date).getFullYear() >= year
 }
 
-// Works for both membership and reisekasse rates — caller passes the right array
 function getRateForMonth(feeRates, year, month) {
   const monthStart = `${year}-${String(month).padStart(2,'0')}-01`
   const rates = feeRates
@@ -131,9 +130,6 @@ function FeeRateModal({ currentRate, onClose, onSaved }) {
             <input className="form-input" type="date" value={effectiveFrom}
               onChange={e => setEffectiveFrom(e.target.value)} required
               min={new Date().toISOString().split('T')[0]} />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-              Endringen er ikke tilbakevirkende — gjelder kun nye registreringer fra og med denne datoen.
-            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Kommentar (valgfritt)</label>
@@ -240,7 +236,7 @@ function LinkModal({ transaction, members, paymentType = 'membership', onClose, 
 }
 
 export default function Members() {
-  const { isKasserer, isAdmin } = useAuth()
+  const { isKasserer } = useAuth()
   const [year, setYear] = useState(CURRENT_YEAR)
   const [members, setMembers] = useState([])
   const [payments, setPayments] = useState([])
@@ -249,14 +245,18 @@ export default function Members() {
   const [reisekasseRates, setReisekasseRates] = useState([])
   const [membershipCatId, setMembershipCatId] = useState(null)
   const [reisekasseCatId, setReisekasseCatId] = useState(null)
-  const [unmatched, setUnmatched] = useState([])
-  const [dismissed, setDismissed] = useState([])
-  const [showDismissed, setShowDismissed] = useState(false)
+  const [unmatchedM, setUnmatchedM] = useState([])
+  const [unmatchedRk, setUnmatchedRk] = useState([])
+  const [dismissedM, setDismissedM] = useState([])
+  const [dismissedRk, setDismissedRk] = useState([])
+  const [showDismissedM, setShowDismissedM] = useState(false)
+  const [showDismissedRk, setShowDismissedRk] = useState(false)
   const [boosts, setBoosts] = useState({})
   const [history, setHistory] = useState({})
   const [matchSuggestions, setMatchSuggestions] = useState({})
-  const [autoMatching, setAutoMatching] = useState(false)
+  const [autoMatching, setAutoMatching] = useState(null) // 'membership' | 'reisekasse' | null
   const [autoLog, setAutoLog] = useState([])
+  const [autoLogType, setAutoLogType] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showFeeModal, setShowFeeModal] = useState(false)
   const [showFeeHistory, setShowFeeHistory] = useState(false)
@@ -320,13 +320,16 @@ export default function Members() {
 
     const allLinkedIds = new Set((hRes.data || []).map(p => p.transaction_id).filter(Boolean))
     const allTx = tRes.data || []
-    const unmatchedTx = allTx.filter(t => !allLinkedIds.has(t.id) && !t.membership_dismissed)
-    setUnmatched(unmatchedTx)
-    setDismissed(allTx.filter(t => !allLinkedIds.has(t.id) && t.membership_dismissed))
+    const unmatchedAll = allTx.filter(t => !allLinkedIds.has(t.id) && !t.membership_dismissed)
+    const dismissedAll = allTx.filter(t => !allLinkedIds.has(t.id) && t.membership_dismissed)
+    setUnmatchedM(unmatchedAll.filter(t => t.category_id === mCatId))
+    setUnmatchedRk(unmatchedAll.filter(t => t.category_id === rkCatId))
+    setDismissedM(dismissedAll.filter(t => t.category_id === mCatId))
+    setDismissedRk(dismissedAll.filter(t => t.category_id === rkCatId))
 
     const activeMems = (mRes.data || []).filter(m => memberVisibleInYear(m, year))
     const newSuggestions = {}
-    for (const t of unmatchedTx) {
+    for (const t of unmatchedAll) {
       const match = getBestMatch(t, activeMems, histMap, boostsMap)
       if (match) newSuggestions[t.id] = match
     }
@@ -337,22 +340,23 @@ export default function Members() {
   const activeMembers = members.filter(m => memberVisibleInYear(m, year))
   const rkMembers = activeMembers.filter(m => m.reisekasse_payment_type)
 
-  async function autoMatch() {
-    if (!activeMembers.length || !unmatched.length) return
-    setAutoMatching(true)
+  async function autoMatch(payType) {
+    const targetUnmatched = payType === 'reisekasse' ? unmatchedRk : unmatchedM
+    if (!activeMembers.length || !targetUnmatched.length) return
+    setAutoMatching(payType)
     setAutoLog([])
-    const newSuggestions = {}
+    setAutoLogType(payType)
+    const newSuggestions = { ...matchSuggestions }
     const autoLinked = []
     const matchedSlots = new Set()
 
-    for (const tx of unmatched) {
+    for (const tx of targetUnmatched) {
       const match = getBestMatch(tx, activeMembers, history, boosts)
       if (!match) continue
       if (match.score >= 0.9) {
         const txDate = tx.date
         const txYear = new Date(txDate).getFullYear()
         const txMonth = new Date(txDate).getMonth() + 1
-        const payType = tx.category_id === reisekasseCatId ? 'reisekasse' : 'membership'
         const memberPayType = payType === 'reisekasse'
           ? match.member.reisekasse_payment_type
           : match.member.payment_type
@@ -368,7 +372,6 @@ export default function Members() {
           ) || matchedSlots.has(slotKey)
 
         if (alreadyCovered) { newSuggestions[tx.id] = match; continue }
-
         if (isYearly && txMonth === 1) { newSuggestions[tx.id] = match; continue }
 
         if (!tx.approved) {
@@ -399,20 +402,33 @@ export default function Members() {
     setMatchSuggestions(newSuggestions)
     if (autoLinked.length > 0) setAutoLog(autoLinked)
     await load()
-    setAutoMatching(false)
+    setAutoMatching(null)
   }
 
-  async function dismissTx(id) {
+  async function dismissTx(id, isRk) {
     await supabase.from('transactions').update({ membership_dismissed: true }).eq('id', id)
-    setUnmatched(prev => prev.filter(t => t.id !== id))
-    setDismissed(prev => [...prev, unmatched.find(t => t.id === id)].filter(Boolean))
+    if (isRk) {
+      const tx = unmatchedRk.find(t => t.id === id)
+      setUnmatchedRk(prev => prev.filter(t => t.id !== id))
+      setDismissedRk(prev => [...prev, tx].filter(Boolean))
+    } else {
+      const tx = unmatchedM.find(t => t.id === id)
+      setUnmatchedM(prev => prev.filter(t => t.id !== id))
+      setDismissedM(prev => [...prev, tx].filter(Boolean))
+    }
   }
 
-  async function restoreTx(id) {
+  async function restoreTx(id, isRk) {
     await supabase.from('transactions').update({ membership_dismissed: false }).eq('id', id)
-    const tx = dismissed.find(t => t.id === id)
-    setDismissed(prev => prev.filter(t => t.id !== id))
-    if (tx) setUnmatched(prev => [tx, ...prev])
+    if (isRk) {
+      const tx = dismissedRk.find(t => t.id === id)
+      setDismissedRk(prev => prev.filter(t => t.id !== id))
+      if (tx) setUnmatchedRk(prev => [tx, ...prev])
+    } else {
+      const tx = dismissedM.find(t => t.id === id)
+      setDismissedM(prev => prev.filter(t => t.id !== id))
+      if (tx) setUnmatchedM(prev => [tx, ...prev])
+    }
   }
 
   function getPayment(memberId, month) {
@@ -433,11 +449,9 @@ export default function Members() {
         ? (rate.amount_yearly || rate.amount_monthly * 12)
         : rate.amount_monthly
       await supabase.from('member_payments').insert({
-        member_id: member.id,
-        year,
+        member_id: member.id, year,
         month: member.payment_type === 'yearly' ? null : month,
-        amount,
-        payment_date: `${year}-${String(month).padStart(2,'0')}-15`,
+        amount, payment_date: `${year}-${String(month).padStart(2,'0')}-15`,
         payment_type: 'membership',
       })
     }
@@ -452,13 +466,11 @@ export default function Members() {
       const rate = getRateForMonth(reisekasseRates, year, month)
       const amount = member.reisekasse_payment_type === 'yearly'
         ? (rate.amount_yearly || rate.amount_monthly * 12)
-        : (rate.amount_monthly || 50)
+        : (rate.amount_monthly || 100)
       await supabase.from('member_payments').insert({
-        member_id: member.id,
-        year,
+        member_id: member.id, year,
         month: member.reisekasse_payment_type === 'yearly' ? null : month,
-        amount,
-        payment_date: `${year}-${String(month).padStart(2,'0')}-15`,
+        amount, payment_date: `${year}-${String(month).padStart(2,'0')}-15`,
         payment_type: 'reisekasse',
       })
     }
@@ -482,10 +494,7 @@ export default function Members() {
     for (let m = 1; m <= 12; m++) {
       const monthStr = `${year}-${String(m).padStart(2,'0')}-01`
       if (member.end_date && monthStr > member.end_date) break
-      if (member.join_date) {
-        const joinYM = member.join_date.slice(0, 7)
-        if (monthStr.slice(0, 7) < joinYM) continue
-      }
+      if (member.join_date && monthStr.slice(0,7) < member.join_date.slice(0,7)) continue
       total += getRateForMonth(feeRates, year, m).amount_monthly
     }
     return total
@@ -501,10 +510,7 @@ export default function Members() {
     for (let m = 1; m <= 12; m++) {
       const monthStr = `${year}-${String(m).padStart(2,'0')}-01`
       if (member.end_date && monthStr > member.end_date) break
-      if (member.join_date) {
-        const joinYM = member.join_date.slice(0, 7)
-        if (monthStr.slice(0, 7) < joinYM) continue
-      }
+      if (member.join_date && monthStr.slice(0,7) < member.join_date.slice(0,7)) continue
       total += getRateForMonth(reisekasseRates, year, m).amount_monthly || 0
     }
     return total
@@ -519,9 +525,7 @@ export default function Members() {
 
   if (loading) return <div className="text-muted">Laster…</div>
 
-  function PaymentGrid({ gridMembers, getPaymentFn, toggleFn, totalPaidFn, expectedFn, rateLabel, rates }) {
-    const hasYearlyPayment = (memberId) =>
-      (gridMembers === rkMembers ? rkPayments : payments).some(p => p.member_id === memberId && p.month === null)
+  function PaymentGrid({ gridMembers, getPaymentFn, toggleFn, totalPaidFn, expectedFn, rates, rkMode }) {
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ minWidth: 980, borderCollapse: 'collapse', width: '100%' }}>
@@ -538,24 +542,19 @@ export default function Members() {
           </thead>
           <tbody>
             {gridMembers.length === 0 ? (
-              <tr>
-                <td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-                  Ingen medlemmer registrert.
-                </td>
-              </tr>
+              <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Ingen medlemmer.</td></tr>
             ) : gridMembers.map(member => {
               const paid = totalPaidFn(member.id)
               const expected = expectedFn(member)
-              const isYearlyMember = hasYearlyPayment(member.id)
+              const memberPayType = rkMode ? member.reisekasse_payment_type : member.payment_type
+              const hasYearly = (rkMode ? rkPayments : payments).some(p => p.member_id === member.id && p.month === null)
               return (
                 <tr key={member.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px 12px' }}>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{member.full_name}</div>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                      {rateLabel}
-                      {member.end_date && (
-                        <span style={{ color: 'var(--red)', marginLeft: 4 }}>· sluttet {member.end_date}</span>
-                      )}
+                      {memberPayType === 'yearly' ? 'Årsbetaler' : 'Månedsbetaler'}
+                      {member.end_date && <span style={{ color: 'var(--red)', marginLeft: 4 }}>· sluttet {member.end_date}</span>}
                     </div>
                   </td>
                   {MONTHS.map((_, i) => {
@@ -565,33 +564,18 @@ export default function Members() {
                     const monthStr = `${year}-${String(month).padStart(2,'0')}-01`
                     const afterEnd = member.end_date && monthStr > member.end_date
                     const rate = getRateForMonth(rates, year, month)
-
                     let bg = 'transparent', color = 'var(--border)', label = '—'
-                    if (afterEnd) {
-                      bg = 'var(--surface)'; color = 'var(--graphite)'; label = ''
-                    } else if (payment) {
-                      bg = 'var(--green)'; color = '#fff'
-                      label = isYearlyMember ? '✓' : String(Math.round(payment.amount))
-                    } else if (isPast) {
-                      bg = '#c0392b22'; color = 'var(--red)'
-                    } else {
-                      color = 'var(--graphite)'
-                    }
-
+                    if (afterEnd) { bg = 'var(--surface)'; color = 'var(--graphite)'; label = '' }
+                    else if (payment) { bg = 'var(--green)'; color = '#fff'; label = hasYearly ? '✓' : String(Math.round(payment.amount)) }
+                    else if (isPast) { bg = '#c0392b22'; color = 'var(--red)' }
+                    else { color = 'var(--graphite)' }
                     return (
                       <td key={month} style={{ padding: 3, textAlign: 'center' }}>
                         <div
                           title={isKasserer && !afterEnd ? `${rate.amount_monthly} kr — klikk for å registrere` : ''}
-                          style={{
-                            borderRadius: 4, padding: '5px 2px', fontSize: 11,
-                            fontFamily: 'var(--font-mono)', background: bg, color,
-                            cursor: isKasserer && !afterEnd ? 'pointer' : 'default',
-                            userSelect: 'none', fontWeight: payment ? 600 : 400,
-                          }}
+                          style={{ borderRadius: 4, padding: '5px 2px', fontSize: 11, fontFamily: 'var(--font-mono)', background: bg, color, cursor: isKasserer && !afterEnd ? 'pointer' : 'default', userSelect: 'none', fontWeight: payment ? 600 : 400 }}
                           onClick={() => isKasserer && !afterEnd && toggleFn(member, month)}
-                        >
-                          {label}
-                        </div>
+                        >{label}</div>
                       </td>
                     )
                   })}
@@ -610,14 +594,142 @@ export default function Members() {
     )
   }
 
+  function UnmatchedSection({ unmatched, dismissed, showDismissed, setShowDismissed, payType, rates }) {
+    const isRk = payType === 'reisekasse'
+    if (unmatched.length === 0 && dismissed.length === 0) return null
+    return (
+      <div style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+          <div style={{ fontWeight: 500, fontSize: 14 }}>
+            Ufordelte innbetalinger
+            <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
+              {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} ikke koblet til noe medlem
+            </span>
+          </div>
+          {isKasserer && unmatched.length > 0 && (
+            <button className="btn btn-sm btn-primary" disabled={!!autoMatching} onClick={() => autoMatch(payType)} style={{ marginLeft: 'auto' }}>
+              {autoMatching === payType ? 'Matcher…' : 'Auto-koble alle'}
+            </button>
+          )}
+        </div>
+
+        {autoLog.length > 0 && autoLogType === payType && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', background: '#1a3a1a', border: '1px solid var(--green)', borderRadius: 6, fontSize: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>
+                {autoLog.length} betaling{autoLog.length > 1 ? 'er' : ''} auto-koblet (≥90% sikkerhet)
+              </span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }} onClick={() => setAutoLog([])}>✕</button>
+            </div>
+            {autoLog.map(({ tx, member, score }, i) => (
+              <div key={i} style={{ color: 'var(--dim)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 2 }}>
+                {tx.date} · {tx.description.slice(0, 40)} → <strong style={{ color: 'var(--text)' }}>{member.full_name}</strong> <ConfidenceBar score={score} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {unmatched.length > 0 && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dato</th><th>Beskrivelse</th>
+                  <th className="text-right">Beløp</th><th>Sats</th><th>Status</th>
+                  <th>Forslag</th>
+                  {isKasserer && <th style={{ width: 180 }} />}
+                </tr>
+              </thead>
+              <tbody>
+                {unmatched.map(t => {
+                  const suggestion = matchSuggestions[t.id]
+                  const rate = rates.find(r => r.amount_monthly === Number(t.amount) || r.amount_yearly === Number(t.amount))
+                  return (
+                    <tr key={t.id}>
+                      <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {t.date}
+                        {t.date.slice(0, 4) !== String(year) && (
+                          <span style={{ marginLeft: 6, background: 'var(--graphite)', color: 'var(--yellow)', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'var(--font-mono)' }}>{t.date.slice(0, 4)}</span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 13 }}>{t.description}</td>
+                      <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                      <td>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: rate ? 'var(--green)' : 'var(--yellow)' }}>
+                          {rate ? `✓ ${rate.amount_monthly}/mnd` : '± avvik'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
+                          {t.approved ? 'Godkjent' : 'Venter'}
+                        </span>
+                      </td>
+                      <td>
+                        {suggestion ? (
+                          <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--dim)' }}>{suggestion.member.full_name}</span>
+                            <ConfidenceBar score={suggestion.score} />
+                          </span>
+                        ) : <span style={{ fontSize: 11, color: 'var(--graphite)' }}>—</span>}
+                      </td>
+                      {isKasserer && (
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div className="flex gap-8">
+                            {suggestion ? (
+                              <>
+                                <button className="btn btn-sm btn-primary" onClick={() => { setLinkTx(t); setLinkSuggestedId(suggestion.member.id) }}>Bekreft</button>
+                                <button className="btn btn-sm btn-secondary" onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>Annet</button>
+                              </>
+                            ) : (
+                              <button className="btn btn-sm btn-secondary" onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>
+                                {t.approved ? 'Koble til' : 'Godkjenn og koble'}
+                              </button>
+                            )}
+                            <button className="btn btn-sm" title="Fjern fra listen" style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', padding: '2px 7px' }}
+                              onClick={() => dismissTx(t.id, isRk)}>✕</button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {dismissed.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <button className="btn btn-sm btn-secondary" onClick={() => setShowDismissed(v => !v)} style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {showDismissed ? '▴ Skjul' : '▾ Vis'} {dismissed.length} fjernede innbetalinger
+            </button>
+            {showDismissed && (
+              <div className="card" style={{ marginTop: 8 }}>
+                <table>
+                  <thead><tr><th>Dato</th><th>Beskrivelse</th><th className="text-right">Beløp</th><th /></tr></thead>
+                  <tbody>
+                    {dismissed.map(t => (
+                      <tr key={t.id} style={{ opacity: 0.65 }}>
+                        <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.date}</td>
+                        <td style={{ fontSize: 13 }}>{t.description}</td>
+                        <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                        <td><button className="btn btn-sm btn-secondary" onClick={() => restoreTx(t.id, isRk)}>↩ Gjenopprett</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       {showFeeModal && (
-        <FeeRateModal
-          currentRate={currentRate}
-          onClose={() => setShowFeeModal(false)}
-          onSaved={load}
-        />
+        <FeeRateModal currentRate={currentRate} onClose={() => setShowFeeModal(false)} onSaved={load} />
       )}
       {linkTx && (
         <LinkModal
@@ -636,16 +748,14 @@ export default function Members() {
           <div className="page-sub" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <span>
               {activeMembers.length} aktive ·{' '}
-              <span style={{ color: totalReceived >= totalExpected ? 'var(--green)' : 'var(--yellow)' }}>
-                {fmt(totalReceived)}
-              </span>{' '}/ {fmt(totalExpected)} innbetalt
+              <span style={{ color: totalReceived >= totalExpected ? 'var(--green)' : 'var(--yellow)' }}>{fmt(totalReceived)}</span>
+              {' '}/ {fmt(totalExpected)} innbetalt
             </span>
             {rkMembers.length > 0 && (
               <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                Reisekasse: {rkMembers.length} · {' '}
-                <span style={{ color: totalReceivedRk >= totalExpectedRk ? 'var(--green)' : 'var(--yellow)' }}>
-                  {fmt(totalReceivedRk)}
-                </span>{' '}/ {fmt(totalExpectedRk)}
+                Reisekasse: {rkMembers.length} ·{' '}
+                <span style={{ color: totalReceivedRk >= totalExpectedRk ? 'var(--green)' : 'var(--yellow)' }}>{fmt(totalReceivedRk)}</span>
+                {' '}/ {fmt(totalExpectedRk)}
               </span>
             )}
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>
@@ -653,9 +763,7 @@ export default function Members() {
               {currentRkRate && <> · Reisekasse: {fmt(currentRkRate.amount_monthly)}/mnd</>}
             </span>
             {isKasserer && (
-              <button className="btn btn-sm btn-secondary" onClick={() => setShowFeeModal(true)}>
-                Endre avgift
-              </button>
+              <button className="btn btn-sm btn-secondary" onClick={() => setShowFeeModal(true)}>Endre avgift</button>
             )}
             {feeRates.length > 1 && (
               <button className="btn btn-sm btn-secondary" onClick={() => setShowFeeHistory(v => !v)}>
@@ -709,203 +817,47 @@ export default function Members() {
                 toggleFn={toggleMonth}
                 totalPaidFn={totalPaid}
                 expectedFn={expectedForMember}
-                rateLabel={null}
+                rates={feeRates}
+                rkMode={false}
+              />
+              <UnmatchedSection
+                unmatched={unmatchedM}
+                dismissed={dismissedM}
+                showDismissed={showDismissedM}
+                setShowDismissed={setShowDismissedM}
+                payType="membership"
                 rates={feeRates}
               />
             </div>
           ),
         },
-        ...(rkMembers.length > 0 ? [{
+        ...(rkMembers.length > 0 || unmatchedRk.length > 0 ? [{
           id: 'reisekasse',
           content: (
             <div className="card">
               <div className="card-title" style={{ marginBottom: 8 }}>
                 Reisekasse
-                <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8, fontSize: 12 }}>
-                  {rkMembers.length} medlemmer
-                </span>
+                {rkMembers.length > 0 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8, fontSize: 12 }}>{rkMembers.length} medlemmer</span>}
               </div>
-              <PaymentGrid
-                gridMembers={rkMembers}
-                getPaymentFn={getRkPayment}
-                toggleFn={toggleRkMonth}
-                totalPaidFn={totalPaidRk}
-                expectedFn={expectedRkForMember}
-                rateLabel="Reisekasse"
+              {rkMembers.length > 0 && (
+                <PaymentGrid
+                  gridMembers={rkMembers}
+                  getPaymentFn={getRkPayment}
+                  toggleFn={toggleRkMonth}
+                  totalPaidFn={totalPaidRk}
+                  expectedFn={expectedRkForMember}
+                  rates={reisekasseRates}
+                  rkMode={true}
+                />
+              )}
+              <UnmatchedSection
+                unmatched={unmatchedRk}
+                dismissed={dismissedRk}
+                showDismissed={showDismissedRk}
+                setShowDismissed={setShowDismissedRk}
+                payType="reisekasse"
                 rates={reisekasseRates}
               />
-            </div>
-          ),
-        }] : []),
-        ...(unmatched.length > 0 ? [{
-          id: 'innbetalinger',
-          content: (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                <div style={{ fontWeight: 500 }}>
-                  Ufordelte innbetalinger
-                  <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                    {unmatched.length} transaksjon{unmatched.length !== 1 ? 'er' : ''} ikke koblet til noe medlem
-                  </span>
-                </div>
-                {isKasserer && (
-                  <button className="btn btn-sm btn-primary" disabled={autoMatching} onClick={autoMatch} style={{ marginLeft: 'auto' }}>
-                    {autoMatching ? 'Matcher…' : 'Auto-koble alle'}
-                  </button>
-                )}
-              </div>
-
-              {autoLog.length > 0 && (
-                <div style={{ marginBottom: 12, padding: '10px 14px', background: '#1a3a1a', border: '1px solid var(--green)', borderRadius: 6, fontSize: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ color: 'var(--green)', fontWeight: 600 }}>
-                      {autoLog.length} betaling{autoLog.length > 1 ? 'er' : ''} auto-koblet (≥90% sikkerhet)
-                    </span>
-                    <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}
-                      onClick={() => setAutoLog([])}>✕</button>
-                  </div>
-                  {autoLog.map(({ tx, member, score }, i) => (
-                    <div key={i} style={{ color: 'var(--dim)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 2 }}>
-                      {tx.date} · {tx.description.slice(0, 40)} → <strong style={{ color: 'var(--text)' }}>{member.full_name}</strong>{' '}
-                      <ConfidenceBar score={score} />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="card">
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Dato</th><th>Beskrivelse</th>
-                        <th className="text-right">Beløp</th><th>Type</th><th>Sats</th><th>Status</th>
-                        <th>Forslag</th>
-                        {isKasserer && <th style={{ width: 180 }} />}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {unmatched.map(t => {
-                        const suggestion = matchSuggestions[t.id]
-                        const isRk = t.category_id === reisekasseCatId
-                        return (
-                          <tr key={t.id}>
-                            <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                              {t.date}
-                              {t.date.slice(0, 4) !== String(year) && (
-                                <span style={{ marginLeft: 6, background: 'var(--graphite)', color: 'var(--yellow)', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-                                  {t.date.slice(0, 4)}
-                                </span>
-                              )}
-                            </td>
-                            <td style={{ fontSize: 13 }}>{t.description}</td>
-                            <td className="text-right amount-positive">{fmt(t.amount)}</td>
-                            <td>
-                              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: 'var(--surface-3,#444)', color: isRk ? 'var(--yellow)' : 'var(--muted)' }}>
-                                {isRk ? 'Reisekasse' : 'Medlemsavgift'}
-                              </span>
-                            </td>
-                            <td>
-                              {(() => {
-                                const pool = isRk ? reisekasseRates : feeRates
-                                const rate = pool.find(r => r.amount_monthly === Number(t.amount) || r.amount_yearly === Number(t.amount))
-                                return (
-                                  <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: rate ? 'var(--green)' : 'var(--yellow)' }}>
-                                    {rate ? `✓ ${rate.amount_monthly}/mnd` : '± avvik'}
-                                  </span>
-                                )
-                              })()}
-                            </td>
-                            <td>
-                              <span className={`badge ${t.approved ? 'badge-approved' : 'badge-pending'}`}>
-                                {t.approved ? 'Godkjent' : 'Venter'}
-                              </span>
-                            </td>
-                            <td>
-                              {suggestion ? (
-                                <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                  <span style={{ color: 'var(--dim)' }}>{suggestion.member.full_name}</span>
-                                  <ConfidenceBar score={suggestion.score} />
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 11, color: 'var(--graphite)' }}>—</span>
-                              )}
-                            </td>
-                            {isKasserer && (
-                              <td style={{ whiteSpace: 'nowrap' }}>
-                                <div className="flex gap-8">
-                                  {suggestion ? (
-                                    <>
-                                      <button className="btn btn-sm btn-primary"
-                                        onClick={() => { setLinkTx(t); setLinkSuggestedId(suggestion.member.id) }}>Bekreft</button>
-                                      <button className="btn btn-sm btn-secondary"
-                                        onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>Annet</button>
-                                    </>
-                                  ) : (
-                                    <button className="btn btn-sm btn-secondary"
-                                      onClick={() => { setLinkTx(t); setLinkSuggestedId('') }}>
-                                      {t.approved ? 'Koble til' : 'Godkjenn og koble'}
-                                    </button>
-                                  )}
-                                  <button className="btn btn-sm" title="Fjern fra listen (ikke slett)"
-                                    style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', padding: '2px 7px' }}
-                                    onClick={() => dismissTx(t.id)}>✕</button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {dismissed.length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => setShowDismissed(v => !v)}
-                    style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {showDismissed ? '▴ Skjul' : '▾ Vis'} {dismissed.length} fjernede innbetalinger
-                  </button>
-
-                  {showDismissed && (
-                    <div className="card" style={{ marginTop: 8 }}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Dato</th><th>Beskrivelse</th>
-                            <th className="text-right">Beløp</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {dismissed.map(t => (
-                            <tr key={t.id} style={{ opacity: 0.65 }}>
-                              <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                                {t.date}
-                                {t.date.slice(0, 4) !== String(year) && (
-                                  <span style={{ marginLeft: 6, background: 'var(--graphite)', color: 'var(--yellow)', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-                                    {t.date.slice(0, 4)}
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ fontSize: 13 }}>{t.description}</td>
-                              <td className="text-right amount-positive">{fmt(t.amount)}</td>
-                              <td>
-                                <button className="btn btn-sm btn-secondary" onClick={() => restoreTx(t.id)}>
-                                  ↩ Gjenopprett
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           ),
         }] : []),
