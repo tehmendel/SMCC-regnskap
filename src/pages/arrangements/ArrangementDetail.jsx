@@ -451,25 +451,39 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
     notes:        [a.notes, b.notes].filter(Boolean).join(' / '),
     reimbursed:   a.reimbursed || b.reimbursed,
     is_estimate:  false,
-    amount:       String(Number(a.amount) + Number(b.amount)),
+    amount:       Number(a.amount) === Number(b.amount)
+      ? String(Number(a.amount))
+      : String(Number(a.amount) + Number(b.amount)),
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const amountsEqual = Number(a.amount) === Number(b.amount)
   const keepTxId = a.transaction_id || b.transaction_id || null
 
   async function save(e) {
     e.preventDefault()
     setSaving(true)
-    // Update one record in-place (avoids unique constraint on transaction_id).
-    // Prefer to keep the bank-linked record as primary; otherwise keep a.
+    setError('')
+    // primary = the bank-linked record (or a if neither has bank link).
+    // We UPDATE primary in-place and DELETE secondary.
+    // We never include transaction_id in the UPDATE payload — primary already
+    // owns the correct value, avoiding any unique-constraint re-evaluation.
     const primary = a.transaction_id ? a : b
     const secondary = a.transaction_id ? b : a
+
+    // If secondary (edge case) has the transaction_id, clear it first to free the slot.
+    if (secondary.transaction_id) {
+      const { error: nullErr } = await supabase
+        .from('arrangement_expenses').update({ transaction_id: null }).eq('id', secondary.id)
+      if (nullErr) { setError(nullErr.message); setSaving(false); return }
+    }
 
     const { error: delErr } = await supabase
       .from('arrangement_expenses').delete().eq('id', secondary.id)
     if (delErr) { setError(delErr.message); setSaving(false); return }
 
-    const { error } = await supabase.from('arrangement_expenses').update({
+    // Build update without transaction_id so Postgres never re-checks the constraint.
+    const payload = {
       expense_date:    form.expense_date,
       description:     form.description,
       vendor:          form.vendor || null,
@@ -480,9 +494,14 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
       reimbursed:      form.reimbursed,
       is_estimate:     form.is_estimate,
       amount:          parseFloat(form.amount),
-      transaction_id:  keepTxId,
       updated_by:      profile.id,
-    }).eq('id', primary.id)
+    }
+    // Only set transaction_id if we moved it from secondary to primary
+    if (secondary.transaction_id) {
+      payload.transaction_id = secondary.transaction_id
+    }
+
+    const { error } = await supabase.from('arrangement_expenses').update(payload).eq('id', primary.id)
     if (error) { setError(error.message); setSaving(false); return }
     onSaved(); onClose()
   }
@@ -493,7 +512,7 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
         <div className="modal-title">Slå sammen utgifter</div>
         {error && <div className="alert alert-error">{error}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
-          {[a, b].map((exp, i) => (
+          {[a, b].map((exp) => (
             <div key={exp.id} style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)' }}
               onClick={() => setForm(f => ({ ...f, description: exp.description, vendor: exp.vendor || '', paid_by: exp.paid_by, payment_method: exp.payment_method, department_id: exp.department_id || '' }))}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>{exp.description}</div>
@@ -511,7 +530,11 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
-              <label className="form-label">Beløp (sum er {fmt(Number(a.amount) + Number(b.amount))})</label>
+              <label className="form-label">
+                Beløp{amountsEqual
+                  ? ` (begge er ${fmt(a.amount)} — beholdt)`
+                  : ` (sum: ${fmt(Number(a.amount) + Number(b.amount))})`}
+              </label>
               <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
             </div>
@@ -532,7 +555,7 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
           <div className="flex gap-8">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Slår sammen…' : 'Slå sammen (sletter begge originaler)'}
+              {saving ? 'Slår sammen…' : 'Slå sammen'}
             </button>
           </div>
         </form>
