@@ -212,6 +212,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 function RulesTab({ categories }) {
   const { isAdmin } = useAuth()
   const [rules, setRules] = useState([])
+  const [systemRules, setSystemRules] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editRule, setEditRule] = useState(null)
@@ -220,13 +221,47 @@ function RulesTab({ categories }) {
   const catById = Object.fromEntries(categories.map(c => [c.id, c]))
 
   async function load() {
-    const { data } = await supabase
-      .from('categorization_rules')
-      .select('*')
-      .not('category_id', 'is', null)
-      .order('priority')
-      .order('match_value')
-    setRules(data || [])
+    const [{ data: rulesData }, { data: ratesData }] = await Promise.all([
+      supabase.from('categorization_rules').select('*').not('category_id', 'is', null)
+        .order('priority').order('match_value'),
+      supabase.from('fee_rates').select('*').order('effective_from', { ascending: false }),
+    ])
+    setRules(rulesData || [])
+
+    // Bygg virtuelle systemregler fra fee_rates
+    const today = new Date().toISOString().slice(0, 10)
+    const getRate = (feeType, field) => {
+      const r = (ratesData || []).filter(r => r.fee_type === feeType && r.effective_from <= today)
+        .sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0]
+      return r ? parseFloat(r[field]) : null
+    }
+    const monthlyRate     = getRate('membership', 'amount_monthly')
+    const yearlyRate      = getRate('membership', 'amount_yearly')
+    const reisekasseRate  = getRate('reisekasse',  'amount_monthly')
+
+    const membershipCat  = categories.find(c => c.name === 'Medlemsavgift SMCC')
+    const reisekasseCat  = categories.find(c => c.name === 'Medlemsavgift reisekassen')
+
+    const sysCats = []
+    if (membershipCat) sysCats.push({
+      _system: true, id: '__sys_membership',
+      match_value: `Navn fra medlemsregister + ${monthlyRate ?? '?'} kr (monthly) / ${yearlyRate ?? '?'} kr (yearly)`,
+      match_type: 'member_name_and_rate',
+      transaction_type: 'inntekt',
+      category_id: membershipCat.id,
+      active: true,
+      priority: null,
+    })
+    if (reisekasseCat) sysCats.push({
+      _system: true, id: '__sys_reisekasse',
+      match_value: `Navn fra medlemsregister + ${reisekasseRate ?? '?'} kr (reisekasse sats)`,
+      match_type: 'member_name_and_rate',
+      transaction_type: 'inntekt',
+      category_id: reisekasseCat.id,
+      active: true,
+      priority: null,
+    })
+    setSystemRules(sysCats)
     setLoading(false)
   }
 
@@ -247,6 +282,11 @@ function RulesTab({ categories }) {
     if (!search.trim()) return true
     const q = search.toLowerCase()
     return r.match_value.includes(q) || (catById[r.category_id]?.name || '').toLowerCase().includes(q)
+  })
+  const filteredSys = systemRules.filter(r => {
+    if (!search.trim()) return true
+    const q = search.toLowerCase()
+    return r.match_value.toLowerCase().includes(q) || (catById[r.category_id]?.name || '').toLowerCase().includes(q)
   })
 
   if (loading) return <div className="text-muted">Laster…</div>
@@ -334,6 +374,32 @@ function RulesTab({ categories }) {
                           </div>
                         </td>
                       )}
+                    </tr>
+                  )
+                })}
+                {filteredSys.map(r => {
+                  const cat = catById[r.category_id]
+                  return (
+                    <tr key={r.id} style={{ background: 'var(--surface-2, rgba(255,255,255,0.03))', fontStyle: 'italic' }}>
+                      <td style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>—</td>
+                      <td style={{ fontSize: 12 }}>
+                        <span title="Dynamisk regel — oppdateres automatisk fra medlemsregister og satstabell">
+                          {r.match_value}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>Dynamisk</td>
+                      <td><span className="badge badge-inntekt">inntekt</span></td>
+                      <td>
+                        {cat
+                          ? <span>{cat.name} <span style={{ fontSize: 11, color: 'var(--muted)' }}>({cat.type})</span></span>
+                          : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td>
+                        <span className="badge" style={{ background: 'var(--surface-3,#444)', color: 'var(--muted)' }}>
+                          System
+                        </span>
+                      </td>
+                      {isAdmin && <td />}
                     </tr>
                   )
                 })}

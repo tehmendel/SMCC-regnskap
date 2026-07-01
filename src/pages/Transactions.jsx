@@ -7,7 +7,7 @@ import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
 import { CardGrid } from '../components/CardGrid'
 import { fmt } from '../lib/format'
-import { loadAllRules, matchRule } from '../lib/categorize'
+import { loadAllRules, matchRule, loadMemberMatchData, matchMemberPayment } from '../lib/categorize'
 
 const COLUMNS = [
   { key: 'date',        label: 'Dato' },
@@ -219,10 +219,15 @@ export default function Transactions() {
   async function autoCategorize() {
     setAutoCategorizing(true)
     setAutoResult(null)
-    const rules = await loadAllRules()
+    const [rules, memberData] = await Promise.all([loadAllRules(), loadMemberMatchData()])
     const uncategorized = transactions.filter(t => !t.category_id)
     const updates = uncategorized
-      .map(t => ({ id: t.id, category_id: matchRule(rules, t.description, t.type) }))
+      .map(t => ({
+        id: t.id,
+        category_id: matchRule(rules, t.description, t.type)
+          || matchMemberPayment(t.description, t.amount, t.type, t.date, memberData)
+          || null,
+      }))
       .filter(u => u.category_id)
 
     if (updates.length === 0) {

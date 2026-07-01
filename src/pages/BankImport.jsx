@@ -6,7 +6,7 @@ import { fmt } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
-import { loadAllRules, matchRule } from '../lib/categorize'
+import { loadAllRules, matchRule, loadMemberMatchData, matchMemberPayment } from '../lib/categorize'
 
 const HISTORY_COLS = [
   { key: 'filename',    label: 'Fil' },
@@ -299,11 +299,12 @@ export default function BankImport() {
       setAnalyzeStart(Date.now())
       startTimer()
 
-      const [catsRes, vendorsRes, sessionRes, rules] = await Promise.all([
+      const [catsRes, vendorsRes, sessionRes, rules, memberData] = await Promise.all([
         supabase.from('categories').select('*').eq('active', true).order('name'),
         supabase.from('vendors').select('name'),
         supabase.auth.getSession(),
         loadAllRules(),
+        loadMemberMatchData(),
       ])
       fileHashRef.current = fileHash
       const cats = catsRes.data || []
@@ -430,6 +431,16 @@ export default function BankImport() {
           const m = (desc || '').match(/bedrterm oppgave til:\s*(.+?)(?:\s*\d|$)/i)
           return m ? m[1].trim() : null
         }
+
+        // Dynamisk medlemsmatching — kjøres før duplikatsjekk slik at withDupCheck ser riktig kategori
+        const beforeMember = withCats.filter(t => !t.suggested_category_id).length
+        withCats = withCats.map(t => {
+          if (t.suggested_category_id) return t
+          const catId = matchMemberPayment(t.description, t.amount, t.type, t.date, memberData)
+          return catId ? { ...t, suggested_category_id: catId } : t
+        })
+        const memberMatched = beforeMember - withCats.filter(t => !t.suggested_category_id).length
+        if (memberMatched > 0) addLog(`${memberMatched} transaksjoner matchet mot medlemsregister (navn + sats)`)
 
         const withDupCheck = withCats.map(t => {
           // 1. Eksakt duplikat
