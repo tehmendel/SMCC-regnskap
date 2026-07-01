@@ -262,6 +262,272 @@ function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) 
   )
 }
 
+function EditRevenueModal({ arrangement, departments, onClose, onSaved, editItem }) {
+  const { profile } = useAuth()
+  const [form, setForm] = useState(editItem ? {
+    revenue_date: editItem.revenue_date || '',
+    description:  editItem.description  || '',
+    source:       editItem.source       || '',
+    amount:       editItem.amount       || '',
+    department_id: editItem.department_id || '',
+    notes:        editItem.notes        || '',
+  } : {
+    revenue_date: new Date().toISOString().split('T')[0],
+    description: '', source: 'billett', amount: '', department_id: '', notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    const payload = {
+      ...form,
+      amount: parseFloat(form.amount),
+      arrangement_id: arrangement.id,
+      department_id: form.department_id || null,
+      updated_by: profile.id,
+    }
+    const { error } = editItem
+      ? await supabase.from('arrangement_revenues').update(payload).eq('id', editItem.id)
+      : await supabase.from('arrangement_revenues').insert({ ...payload, created_by: profile.id })
+    if (error) setError(error.message)
+    else { onSaved(); onClose() }
+    setSaving(false)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">{editItem ? 'Rediger inntekt' : 'Registrer inntekt'}</div>
+        {error && <div className="alert alert-error">{error}</div>}
+        <form onSubmit={save}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Dato</label>
+              <input className="form-input" type="date" value={form.revenue_date}
+                onChange={e => setForm(f => ({ ...f, revenue_date: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Avdeling</label>
+              <select className="form-select" value={form.department_id}
+                onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}>
+                <option value="">Velg avdeling…</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Beskrivelse</label>
+            <input className="form-input" type="text" value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Kilde</label>
+              <input className="form-input" type="text" value={form.source}
+                onChange={e => setForm(f => ({ ...f, source: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Beløp (NOK)</label>
+              <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Kommentar</label>
+            <textarea className="form-textarea" value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <div className="flex gap-8">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Lagrer…' : 'Lagre'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function LinkExpenseTxModal({ expense, onClose, onSaved }) {
+  const [transactions, setTransactions] = useState([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase
+        .from('transactions')
+        .select('id, date, description, amount, type, categories(name)')
+        .eq('type', 'utgift')
+        .order('date', { ascending: false })
+      setTransactions(data || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const filtered = transactions.filter(t => {
+    const q = search.toLowerCase()
+    return (
+      t.description?.toLowerCase().includes(q) ||
+      t.date?.includes(q) ||
+      String(t.amount).includes(q)
+    )
+  })
+
+  async function link(tx) {
+    setSaving(true)
+    await supabase.from('arrangement_expenses').update({ transaction_id: tx.id }).eq('id', expense.id)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 600 }}>
+        <div className="modal-title">Koble til banktransaksjon</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          Kobler: <strong>{expense.description}</strong> — {fmt(expense.amount)}
+        </div>
+        <input className="form-input" placeholder="Søk på beskrivelse, dato eller beløp…"
+          value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} autoFocus />
+        {loading ? (
+          <div className="text-muted">Laster…</div>
+        ) : (
+          <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Ingen treff</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ position: 'sticky', top: 0, background: 'var(--steel)' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Dato</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Beskrivelse</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>Beløp</th>
+                    <th style={{ width: 80 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 100).map(t => (
+                    <tr key={t.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.date}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 13 }}>
+                        {t.description}
+                        {t.categories?.name && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)' }}>{t.categories.name}</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--red)' }}>{fmt(t.amount)}</td>
+                      <td style={{ padding: '8px 8px' }}>
+                        <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => link(t)}>Koble</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        <div style={{ marginTop: 12 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [a, b] = expenses
+  const [form, setForm] = useState({
+    expense_date: a.expense_date,
+    description:  a.description,
+    vendor:       a.vendor || '',
+    paid_by:      a.paid_by,
+    payment_method: a.payment_method,
+    department_id: a.department_id || '',
+    notes:        [a.notes, b.notes].filter(Boolean).join(' / '),
+    reimbursed:   a.reimbursed || b.reimbursed,
+    is_estimate:  false,
+    amount:       String(Number(a.amount) + Number(b.amount)),
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const keepTxId = a.transaction_id || b.transaction_id || null
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase.from('arrangement_expenses').insert({
+      ...form,
+      amount: parseFloat(form.amount),
+      arrangement_id: arrangement.id,
+      transaction_id: keepTxId,
+      department_id: form.department_id || null,
+      created_by: profile.id,
+      updated_by: profile.id,
+    })
+    if (error) { setError(error.message); setSaving(false); return }
+    await supabase.from('arrangement_expenses').delete().in('id', [a.id, b.id])
+    onSaved(); onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 580 }}>
+        <div className="modal-title">Slå sammen utgifter</div>
+        {error && <div className="alert alert-error">{error}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
+          {[a, b].map((exp, i) => (
+            <div key={exp.id} style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)' }}
+              onClick={() => setForm(f => ({ ...f, description: exp.description, vendor: exp.vendor || '', paid_by: exp.paid_by, payment_method: exp.payment_method, department_id: exp.department_id || '' }))}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>{exp.description}</div>
+              <div style={{ color: 'var(--muted)' }}>{exp.expense_date} · {fmt(exp.amount)}</div>
+              {exp.transaction_id && <div style={{ fontSize: 10, color: 'var(--accent)', marginTop: 2 }}>⬡ bank-koblet</div>}
+              <div style={{ fontSize: 10, color: 'var(--graphite)', marginTop: 4 }}>Klikk for å bruke detaljer herfra</div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={save}>
+          <div className="form-group">
+            <label className="form-label">Beskrivelse (resultat)</label>
+            <input className="form-input" value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Beløp (sum er {fmt(Number(a.amount) + Number(b.amount))})</label>
+              <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Avdeling</label>
+              <select className="form-select" value={form.department_id}
+                onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}>
+                <option value="">— ingen —</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          </div>
+          {keepTxId && (
+            <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 12 }}>
+              ⬡ Bank-kobling bevares fra eksisterende post
+            </div>
+          )}
+          <div className="flex gap-8">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Slår sammen…' : 'Slå sammen (sletter begge originaler)'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function LinkTxModal({ revenue, onClose, onSaved }) {
   const [transactions, setTransactions] = useState([])
   const [search, setSearch] = useState('')
@@ -375,6 +641,11 @@ export default function ArrangementDetail() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editExpense, setEditExpense] = useState(null)
   const [linkTarget, setLinkTarget] = useState(null)
+  const [showRevenueModal, setShowRevenueModal] = useState(false)
+  const [editRevenue, setEditRevenue] = useState(null)
+  const [linkExpenseTarget, setLinkExpenseTarget] = useState(null)
+  const [mergeMode, setMergeMode] = useState(false)
+  const [selectedForMerge, setSelectedForMerge] = useState([])
   const [filterDept, setFilterDept] = useState('alle')
   const [loading, setLoading] = useState(true)
 
@@ -411,6 +682,24 @@ export default function ArrangementDetail() {
       reimbursed_date: !expense.reimbursed ? new Date().toISOString().split('T')[0] : null,
     }).eq('id', expense.id)
     load()
+  }
+
+  async function deleteExpense(expense) {
+    if (!window.confirm(`Slett "${expense.description}" (${fmt(expense.amount)})?`)) return
+    await supabase.from('arrangement_expenses').delete().eq('id', expense.id)
+    load()
+  }
+
+  async function deleteRevenue(revenue) {
+    if (!window.confirm(`Slett "${revenue.description}" (${fmt(revenue.amount)})?`)) return
+    await supabase.from('arrangement_revenues').delete().eq('id', revenue.id)
+    load()
+  }
+
+  function toggleMergeSelect(id) {
+    setSelectedForMerge(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]
+    )
   }
 
   if (loading) return <div className="text-muted">Laster…</div>
@@ -472,6 +761,31 @@ export default function ArrangementDetail() {
           onSaved={load}
         />
       )}
+      {showRevenueModal && (
+        <EditRevenueModal
+          arrangement={arrangement}
+          departments={departments}
+          editItem={editRevenue}
+          onClose={() => { setShowRevenueModal(false); setEditRevenue(null) }}
+          onSaved={load}
+        />
+      )}
+      {linkExpenseTarget && (
+        <LinkExpenseTxModal
+          expense={linkExpenseTarget}
+          onClose={() => setLinkExpenseTarget(null)}
+          onSaved={() => { setLinkExpenseTarget(null); load() }}
+        />
+      )}
+      {mergeMode && selectedForMerge.length === 2 && (
+        <MergeExpensesModal
+          expenses={expenses.filter(e => selectedForMerge.includes(e.id))}
+          arrangement={arrangement}
+          departments={departments}
+          onClose={() => { setMergeMode(false); setSelectedForMerge([]) }}
+          onSaved={() => { setMergeMode(false); setSelectedForMerge([]); load() }}
+        />
+      )}
 
       <div className="page-header">
         <div>
@@ -498,6 +812,11 @@ export default function ArrangementDetail() {
           {isKasserer && (
             <button className="btn btn-secondary" onClick={() => setShowEditModal(true)}>
               Rediger
+            </button>
+          )}
+          {isKasserer && (
+            <button className="btn btn-secondary" onClick={() => { setEditRevenue(null); setShowRevenueModal(true) }}>
+              + Inntekt
             </button>
           )}
           {isKasserer && (
@@ -764,6 +1083,15 @@ export default function ArrangementDetail() {
                 <button key={d.id} className={`btn btn-sm ${filterDept === d.name ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setFilterDept(d.name)}>{d.name}</button>
               ))}
+              {isKasserer && (
+                <button
+                  className={`btn btn-sm ${mergeMode ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMergeMode(v => !v); setSelectedForMerge([]) }}
+                  title="Velg to utgifter for å slå dem sammen"
+                >
+                  {mergeMode ? `Slå sammen (${selectedForMerge.length}/2 valgt)` : '⇔ Slå sammen'}
+                </button>
+              )}
               <ColumnPicker prefs={expPrefs} />
             </div>
           </div>
@@ -781,36 +1109,53 @@ export default function ArrangementDetail() {
                 </tr>
               </thead>
               <tbody>
-                {filteredExpenses.map(e => (
-                  <tr key={e.id}>
-                    {expPrefs.orderedVisible.map(col => {
-                      switch (col.key) {
-                        case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
-                        case 'description': return <td key={col.key}>{e.description}{e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}{e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}</td>
-                        case 'vendor':      return <td key={col.key} style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
-                        case 'department':  return <td key={col.key}><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
-                        case 'paid_by':     return <td key={col.key} style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
-                        case 'method':      return <td key={col.key} style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
-                        case 'amount':      return <td key={col.key} className="text-right amount-negative">{fmt(e.amount)}</td>
-                        case 'reimbursed':  return <td key={col.key}><span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>{e.reimbursed ? 'Utbetalt' : 'Venter'}</span></td>
-                        case 'notes':       return <td key={col.key} style={{ color: 'var(--muted)', fontSize: 12 }}>{e.notes || '—'}</td>
-                        default:            return <td key={col.key} />
-                      }
-                    })}
-                    {isKasserer && (
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div className="flex gap-8">
-                          {!e.transaction_id && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => { setEditExpense(e); setShowExpenseModal(true) }}>✎</button>
-                          )}
-                          <button className="btn btn-sm btn-secondary" onClick={() => markReimbursed(e)}>
-                            {e.reimbursed ? '↩' : '✓'}
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {filteredExpenses.map(e => {
+                  const isMergeSelected = selectedForMerge.includes(e.id)
+                  return (
+                    <tr key={e.id} style={isMergeSelected ? { background: 'var(--surface-2, #2a2a2a)' } : {}}>
+                      {mergeMode && (
+                        <td style={{ paddingLeft: 8, width: 28 }}>
+                          <input type="checkbox" checked={isMergeSelected}
+                            onChange={() => toggleMergeSelect(e.id)} />
+                        </td>
+                      )}
+                      {expPrefs.orderedVisible.map(col => {
+                        switch (col.key) {
+                          case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
+                          case 'description': return <td key={col.key}>{e.description}{e.is_estimate && <span className="badge badge-pending" style={{ marginLeft: 6, fontSize: 9 }}>estimat</span>}{e.transaction_id && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>⬡ bank</span>}</td>
+                          case 'vendor':      return <td key={col.key} style={{ color: 'var(--muted)' }}>{e.vendor || '—'}</td>
+                          case 'department':  return <td key={col.key}><span className="badge badge-pending" style={{ background: 'var(--graphite)', color: 'var(--dim)' }}>{e.arrangement_departments?.name || '—'}</span></td>
+                          case 'paid_by':     return <td key={col.key} style={{ color: 'var(--dim)' }}>{e.paid_by}</td>
+                          case 'method':      return <td key={col.key} style={{ fontSize: 11, color: 'var(--muted)' }}>{PAYMENT_LABELS[e.payment_method]}</td>
+                          case 'amount':      return <td key={col.key} className="text-right amount-negative">{fmt(e.amount)}</td>
+                          case 'reimbursed':  return <td key={col.key}><span className={`badge ${e.reimbursed ? 'badge-approved' : 'badge-pending'}`}>{e.reimbursed ? 'Utbetalt' : 'Venter'}</span></td>
+                          case 'notes':       return <td key={col.key} style={{ color: 'var(--muted)', fontSize: 12 }}>{e.notes || '—'}</td>
+                          default:            return <td key={col.key} />
+                        }
+                      })}
+                      {isKasserer && (
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div className="flex gap-8">
+                            <button className="btn btn-sm btn-secondary" title="Rediger"
+                              onClick={() => { setEditExpense(e); setShowExpenseModal(true) }}>✎</button>
+                            {e.transaction_id ? (
+                              <button className="btn btn-sm btn-secondary" title="Fjern bank-kobling"
+                                onClick={async () => { await supabase.from('arrangement_expenses').update({ transaction_id: null }).eq('id', e.id); load() }}>⬡</button>
+                            ) : (
+                              <button className="btn btn-sm btn-secondary" title="Koble til banktransaksjon"
+                                onClick={() => setLinkExpenseTarget(e)}>⬡+</button>
+                            )}
+                            <button className="btn btn-sm btn-secondary" title={e.reimbursed ? 'Marker ikke utbetalt' : 'Marker utbetalt'}
+                              onClick={() => markReimbursed(e)}>{e.reimbursed ? '↩' : '✓'}</button>
+                            <button className="btn btn-sm" title="Slett"
+                              style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--red)', padding: '2px 7px' }}
+                              onClick={() => deleteExpense(e)}>✕</button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
               </tbody>
               <tfoot>
                 <tr>
@@ -873,22 +1218,20 @@ export default function ArrangementDetail() {
                           case 'actions':     return (
                             <td key={col.key}>
                               {isKasserer && (
-                                r.transaction_id ? (
-                                  <button
-                                    className="btn btn-sm btn-secondary"
-                                    title="Fjern kobling til banktransaksjon"
-                                    onClick={async () => {
-                                      await supabase.from('arrangement_revenues').update({ transaction_id: null }).eq('id', r.id)
-                                      load()
-                                    }}
-                                  >⬡ Fjern</button>
-                                ) : (
-                                  <button
-                                    className="btn btn-sm btn-secondary"
-                                    title="Koble til banktransaksjon"
-                                    onClick={() => setLinkTarget(r)}
-                                  >⬡ Koble</button>
-                                )
+                                <div className="flex gap-8">
+                                  <button className="btn btn-sm btn-secondary" title="Rediger"
+                                    onClick={() => { setEditRevenue(r); setShowRevenueModal(true) }}>✎</button>
+                                  {r.transaction_id ? (
+                                    <button className="btn btn-sm btn-secondary" title="Fjern bank-kobling"
+                                      onClick={async () => { await supabase.from('arrangement_revenues').update({ transaction_id: null }).eq('id', r.id); load() }}>⬡</button>
+                                  ) : (
+                                    <button className="btn btn-sm btn-secondary" title="Koble til banktransaksjon"
+                                      onClick={() => setLinkTarget(r)}>⬡+</button>
+                                  )}
+                                  <button className="btn btn-sm" title="Slett"
+                                    style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--red)', padding: '2px 7px' }}
+                                    onClick={() => deleteRevenue(r)}>✕</button>
+                                </div>
                               )}
                             </td>
                           )
