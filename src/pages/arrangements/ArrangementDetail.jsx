@@ -460,16 +460,29 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
   async function save(e) {
     e.preventDefault()
     setSaving(true)
-    await supabase.from('arrangement_expenses').delete().in('id', [a.id, b.id])
-    const { error } = await supabase.from('arrangement_expenses').insert({
-      ...form,
-      amount: parseFloat(form.amount),
-      arrangement_id: arrangement.id,
-      transaction_id: keepTxId,
-      department_id: form.department_id || null,
-      created_by: profile.id,
-      updated_by: profile.id,
-    })
+    // Update one record in-place (avoids unique constraint on transaction_id).
+    // Prefer to keep the bank-linked record as primary; otherwise keep a.
+    const primary = a.transaction_id ? a : b
+    const secondary = a.transaction_id ? b : a
+
+    const { error: delErr } = await supabase
+      .from('arrangement_expenses').delete().eq('id', secondary.id)
+    if (delErr) { setError(delErr.message); setSaving(false); return }
+
+    const { error } = await supabase.from('arrangement_expenses').update({
+      expense_date:    form.expense_date,
+      description:     form.description,
+      vendor:          form.vendor || null,
+      paid_by:         form.paid_by,
+      payment_method:  form.payment_method,
+      department_id:   form.department_id || null,
+      notes:           form.notes || null,
+      reimbursed:      form.reimbursed,
+      is_estimate:     form.is_estimate,
+      amount:          parseFloat(form.amount),
+      transaction_id:  keepTxId,
+      updated_by:      profile.id,
+    }).eq('id', primary.id)
     if (error) { setError(error.message); setSaving(false); return }
     onSaved(); onClose()
   }
