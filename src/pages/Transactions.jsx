@@ -146,6 +146,53 @@ function Modal({ onClose, onSaved, editItem }) {
   )
 }
 
+const EyeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+
+function TxDetailModal({ tx, onClose }) {
+  const fmtDate = d => d ? new Date(d).toLocaleString('nb-NO') : '—'
+  const fields = [
+    { label: 'ID',           value: tx.id, mono: true },
+    { label: 'Dato',         value: tx.date },
+    { label: 'Beskrivelse',  value: tx.description },
+    { label: 'Beløp',        value: `${tx.type === 'utgift' ? '−' : '+'}${Number(tx.amount).toLocaleString('nb-NO', { minimumFractionDigits: 2 })} kr` },
+    { label: 'Type',         value: tx.type },
+    { label: 'Kategori',     value: tx.categories?.name || '—' },
+    { label: 'Arrangement',  value: tx.arrangements?.name || '—' },
+    { label: 'Notater',      value: tx.notes || '—' },
+    { label: 'Godkjent',     value: tx.approved ? `Ja — ${fmtDate(tx.approved_at)}` : 'Nei' },
+    { label: 'Bankimport-ID',value: tx.bank_import_id || '—', mono: true },
+    { label: 'Opprettet',    value: fmtDate(tx.created_at) },
+    { label: 'Oppdatert',    value: fmtDate(tx.updated_at) },
+  ]
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>Transaksjonsdetaljer</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 20, lineHeight: 1, padding: '0 4px' }}>×</button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {fields.map(f => (
+              <tr key={f.label} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '7px 12px 7px 0', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', width: '38%' }}>{f.label}</td>
+                <td style={{ padding: '7px 0', fontSize: 13, fontFamily: f.mono ? 'var(--font-mono)' : undefined, wordBreak: 'break-word' }}>{f.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function Transactions() {
   const { isKasserer, isAdmin, profile } = useAuth()
   const navigate = useNavigate()
@@ -155,6 +202,7 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
+  const [detailTx, setDetailTx] = useState(null)
   const [filterType, setFilterType] = useState('alle')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState('alle')
@@ -327,6 +375,7 @@ export default function Transactions() {
           onSaved={load}
         />
       )}
+      {detailTx && <TxDetailModal tx={detailTx} onClose={() => setDetailTx(null)} />}
       <div className="page-header">
         <div>
           <div className="page-title">Transaksjoner</div>
@@ -465,27 +514,35 @@ export default function Transactions() {
                             {col.label}
                           </ResizableTh>
                         ))}
-                        {isKasserer && <th>Handlinger</th>}
+                        <th>Handlinger</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map(t => (
                         <tr key={t.id}>
                           {prefs.orderedVisible.map(col => renderCell(t, col.key))}
-                          {isKasserer && (
-                            <td style={{ whiteSpace: 'nowrap' }}>
-                              <div className="flex gap-8">
-                                <button className="btn btn-sm btn-secondary"
-                                  onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
-                                <button className="btn btn-sm btn-secondary" onClick={() => toggleApprove(t)}>
-                                  {t.approved ? 'Angre' : 'Godkjenn'}
-                                </button>
-                                {isAdmin && (
-                                  <button className="btn btn-sm btn-danger" onClick={() => deleteTransaction(t.id)}>Slett</button>
-                                )}
-                              </div>
-                            </td>
-                          )}
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <div className="flex gap-8">
+                              <button title="Vis alle detaljer"
+                                className="btn btn-sm btn-secondary"
+                                style={{ padding: '3px 7px', display: 'flex', alignItems: 'center' }}
+                                onClick={() => setDetailTx(t)}>
+                                <EyeIcon />
+                              </button>
+                              {isKasserer && (
+                                <>
+                                  <button className="btn btn-sm btn-secondary"
+                                    onClick={() => { setEditItem(t); setShowModal(true) }}>Rediger</button>
+                                  <button className="btn btn-sm btn-secondary" onClick={() => toggleApprove(t)}>
+                                    {t.approved ? 'Angre' : 'Godkjenn'}
+                                  </button>
+                                  {isAdmin && (
+                                    <button className="btn btn-sm btn-danger" onClick={() => deleteTransaction(t.id)}>Slett</button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

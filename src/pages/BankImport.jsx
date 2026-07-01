@@ -8,6 +8,51 @@ import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
 import { loadAllRules, matchRule, loadMemberMatchData, matchMemberPayment } from '../lib/categorize'
 
+const EyeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+
+function RowDetailModal({ row, onClose, categories }) {
+  const cat = categories.find(c => c.id === row.suggested_category_id)
+  const fields = [
+    { label: 'Dato',        value: row.date },
+    { label: 'Beskrivelse', value: row.description },
+    { label: 'Beløp',       value: `${row.type === 'utgift' ? '−' : '+'}${Number(row.amount).toLocaleString('nb-NO', { minimumFractionDigits: 2 })} kr` },
+    { label: 'Type',        value: row.type },
+    { label: 'Banktype',    value: row.csvType   || '—' },
+    { label: 'Undertype',   value: row.csvSubtype || '—' },
+    { label: 'Melding / KID / Faktura', value: row.notes || '—' },
+    { label: 'Søketekst (regelmatching)', value: row.matchText || '—', mono: true },
+    { label: 'Kategoriforslag', value: cat ? `${cat.name} (${cat.type})` : 'Ingen' },
+    { label: 'Status',      value: row._duplicate ? 'Duplikat' : row._composite ? `Kombinert utbetaling — ${row._composite.count} poster, sum ${Math.round(row._composite.sum).toLocaleString('nb-NO')} kr` : 'Ny' },
+  ]
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>Transaksjonsdetaljer</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 20, lineHeight: 1, padding: '0 4px' }}>×</button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {fields.map(f => (
+              <tr key={f.label} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '7px 12px 7px 0', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', width: '40%' }}>{f.label}</td>
+                <td style={{ padding: '7px 0', fontSize: 13, fontFamily: f.mono ? 'var(--font-mono)' : undefined, wordBreak: 'break-word' }}>{f.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 const HISTORY_COLS = [
   { key: 'filename',    label: 'Fil' },
   { key: 'imported_at', label: 'Importert' },
@@ -200,6 +245,7 @@ export default function BankImport() {
   const [fileInfo, setFileInfo] = useState(null)
   const [analyzeStart, setAnalyzeStart] = useState(null)
   const [rows, setRows] = useState([])
+  const [detailRow, setDetailRow] = useState(null)
   const [vendorSuggestions, setVendorSuggestions] = useState([])
   const [categories, setCategories] = useState([])
   const [error, setError] = useState('')
@@ -1029,6 +1075,7 @@ export default function BankImport() {
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: 28 }}></th>
                     <th style={{ width: 36 }}>
                       <input type="checkbox" checked={rows.every(r => r.selected)}
                         onChange={e => setRows(prev => prev.map(r => ({ ...r, selected: e.target.checked })))} />
@@ -1043,6 +1090,14 @@ export default function BankImport() {
                 <tbody>
                   {rows.map(r => (
                     <tr key={r._id} style={{ opacity: r.selected ? 1 : 0.35 }}>
+                      <td style={{ padding: '4px 4px' }}>
+                        <button title="Vis alle detaljer" onClick={() => setDetailRow(r)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+                          <EyeIcon />
+                        </button>
+                      </td>
                       <td>
                         <input type="checkbox" checked={r.selected}
                           onChange={e => updateRow(r._id, 'selected', e.target.checked)} />
@@ -1050,6 +1105,11 @@ export default function BankImport() {
                       <td className="text-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.date}</td>
                       <td style={{ maxWidth: 320, fontSize: 13 }}>
                         {r.description}
+                        {r.notes && (
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, fontStyle: 'italic' }}>
+                            {r.notes}
+                          </div>
+                        )}
                         {(r.csvType || r.csvSubtype) && (
                           <div style={{ marginTop: 2 }}>
                             {r.csvType && (
@@ -1180,6 +1240,10 @@ export default function BankImport() {
       )}
 
       </> /* end activeTab === 'import' */}
+
+      {detailRow && (
+        <RowDetailModal row={detailRow} onClose={() => setDetailRow(null)} categories={categories} />
+      )}
     </div>
   )
 }
