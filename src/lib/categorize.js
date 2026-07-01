@@ -148,15 +148,15 @@ export async function loadMemberMatchData() {
   const [membersRes, ratesRes, catsRes] = await Promise.all([
     supabase.from('members').select('id, full_name, payment_type'),
     supabase.from('fee_rates').select('*').order('effective_from'),
-    supabase.from('categories').select('id, name')
-      .in('name', ['Medlemsavgift SMCC', 'Medlemsavgift reisekassen']),
+    supabase.from('categories').select('id, code')
+      .in('code', ['membership_smcc', 'membership_reisekasse']),
   ])
   const cats = catsRes.data || []
   return {
     members:          membersRes.data || [],
     rates:            ratesRes.data  || [],
-    membershipCatId:  cats.find(c => c.name === 'Medlemsavgift SMCC')?.id  || null,
-    reisekasseCatId:  cats.find(c => c.name === 'Medlemsavgift reisekassen')?.id || null,
+    membershipCatId:  cats.find(c => c.code === 'membership_smcc')?.id        || null,
+    reisekasseCatId:  cats.find(c => c.code === 'membership_reisekasse')?.id  || null,
   }
 }
 

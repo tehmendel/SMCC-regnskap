@@ -239,8 +239,8 @@ function RulesTab({ categories }) {
     const yearlyRate      = getRate('membership', 'amount_yearly')
     const reisekasseRate  = getRate('reisekasse',  'amount_monthly')
 
-    const membershipCat  = categories.find(c => c.name === 'Medlemsavgift SMCC')
-    const reisekasseCat  = categories.find(c => c.name === 'Medlemsavgift reisekassen')
+    const membershipCat  = categories.find(c => c.code === 'membership_smcc')
+    const reisekasseCat  = categories.find(c => c.code === 'membership_reisekasse')
 
     const sysCats = []
     if (membershipCat) sysCats.push({
@@ -431,6 +431,10 @@ export default function Categories() {
   useEffect(() => { load() }, [])
 
   async function deleteCategory(cat) {
+    if (cat.code) {
+      alert(`«${cat.name}» er en systemkategori og kan ikke slettes.`)
+      return
+    }
     setDeleting(cat.id)
     const { count } = await supabase
       .from('transactions')
@@ -456,7 +460,17 @@ export default function Categories() {
 
   function renderCell(c, key) {
     switch (key) {
-      case 'name':        return <td key={key} style={{ fontWeight: 500 }}>{c.name}</td>
+      case 'name':        return (
+        <td key={key} style={{ fontWeight: 500 }}>
+          {c.name}
+          {c.code && (
+            <span title={`Systemkategori — kan ikke slettes (kode: ${c.code})`}
+              style={{ marginLeft: 7, fontSize: 10, padding: '1px 6px', background: 'var(--surface-3,#444)', color: 'var(--muted)', borderRadius: 4, fontFamily: 'var(--font-mono)', fontWeight: 400, verticalAlign: 'middle' }}>
+              system
+            </span>
+          )}
+        </td>
+      )
       case 'description': return <td key={key} style={{ color: 'var(--muted)', fontSize: 13 }}>{c.description || '—'}</td>
       case 'active':      return (
         <td key={key}>
@@ -553,8 +567,10 @@ export default function Categories() {
                                   <div className="flex gap-8">
                                     <button className="btn btn-sm btn-secondary" style={{ minWidth: 90 }}
                                       onClick={() => { setEditCat(c); setShowModal(true) }}>✎ Rediger</button>
-                                    <button className="btn btn-sm btn-danger" disabled={deleting === c.id}
-                                      onClick={() => deleteCategory(c)}>{deleting === c.id ? '…' : 'Slett'}</button>
+                                    {!c.code && (
+                                      <button className="btn btn-sm btn-danger" disabled={deleting === c.id}
+                                        onClick={() => deleteCategory(c)}>{deleting === c.id ? '…' : 'Slett'}</button>
+                                    )}
                                   </div>
                                 </td>
                               )}

@@ -246,8 +246,8 @@ export default function Members() {
     // Fetch membership category IDs first (one extra round trip, keeps code clean)
     const { data: mCats } = await supabase
       .from('categories')
-      .select('id, name')
-      .in('name', ['Medlemsavgift SMCC', 'Medlemsavgift reisekassen'])
+      .select('id, code')
+      .in('code', ['membership_smcc', 'membership_reisekasse'])
     const membershipCatIds = (mCats || []).map(c => c.id)
 
     const [mRes, pRes, tRes, hRes, rRes, bRes] = await Promise.all([
