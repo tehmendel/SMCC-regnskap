@@ -16,14 +16,16 @@ function normTx(s) {
 
 function scoreMatch(desc, member, hist, boosts = {}) {
   const d = normTx(desc)
+  const dWords = new Set(d.split(/\s+/).filter(Boolean))
   const parts = normTx(member.full_name).split(' ').filter(p => p.length > 1)
   if (!parts.length) return 0
-  const hits = parts.filter(p => d.includes(p)).length
+  const hits = parts.filter(p => dWords.has(p)).length
   const nameScore = hits / parts.length
   const memberHist = hist[member.id] || []
   const histConfirmed = memberHist.some(h => {
     const hd = normTx(h)
-    const hHits = parts.filter(p => hd.includes(p)).length
+    const hdWords = new Set(hd.split(/\s+/).filter(Boolean))
+    const hHits = parts.filter(p => hdWords.has(p)).length
     return hHits / parts.length >= 0.5
   })
   // Boost keyed on member_id — applies to ALL future transactions for this member
@@ -320,31 +322,44 @@ export default function Members() {
     setAutoLog([])
     const newSuggestions = {}
     const autoLinked = []
+    const matchedSlots = new Set()
 
     for (const tx of unmatched) {
       const match = getBestMatch(tx, activeMembers, history, boosts)
       if (!match) continue
       if (match.score >= 0.9) {
+        const txDate = tx.date
+        const txYear = new Date(txDate).getFullYear()
+        const txMonth = new Date(txDate).getMonth() + 1
+        const slotKey = `${match.member.id}:${match.member.payment_type === 'yearly' ? 'all' : txMonth}`
+        const alreadyCovered =
+          payments.some(p =>
+            p.member_id === match.member.id &&
+            p.year === txYear &&
+            (match.member.payment_type === 'yearly' ? p.month === null : p.month === txMonth)
+          ) || matchedSlots.has(slotKey)
+
+        if (alreadyCovered) {
+          newSuggestions[tx.id] = match
+          continue
+        }
+
         if (!tx.approved) {
           await supabase.from('transactions').update({
             approved: true, approved_at: new Date().toISOString(),
           }).eq('id', tx.id)
         }
-        const txDate = tx.date
-        const txYear = new Date(txDate).getFullYear()
-        const txMonth = new Date(txDate).getMonth() + 1
-        const rate = getRateForMonth(feeRates, txYear, txMonth)
-        const amount = match.member.payment_type === 'yearly' ? (rate.amount_yearly || rate.amount_monthly * 12) : rate.amount_monthly
         const { error } = await supabase.from('member_payments').insert({
           member_id: match.member.id,
           year: txYear,
           month: match.member.payment_type === 'yearly' ? null : txMonth,
-          amount,
+          amount: Number(tx.amount),
           payment_date: txDate,
           transaction_id: tx.id,
         })
         if (!error) {
           autoLinked.push({ tx, member: match.member, score: match.score })
+          matchedSlots.add(slotKey)
           await recordBoost(match.member.id, match.member.full_name)
         } else {
           newSuggestions[tx.id] = match
