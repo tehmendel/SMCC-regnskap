@@ -67,7 +67,7 @@ function ConfidenceBar({ score }) {
 }
 
 function memberVisibleInYear(m, year) {
-  if (!m.reisekasse_payment_type) return false
+  if (!m.in_reisekasse) return false
   if (m.join_date && new Date(m.join_date).getFullYear() > year) return false
   if (m.active) return true
   if (!m.end_date) return false
