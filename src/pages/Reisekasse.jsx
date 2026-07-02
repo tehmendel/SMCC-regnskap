@@ -79,7 +79,7 @@ function getRateForMonth(feeRates, year, month) {
   const rates = feeRates
     .filter(r => r.effective_from <= monthStart)
     .sort((a, b) => b.effective_from.localeCompare(a.effective_from))
-  return rates[0] || { amount_monthly: 100, amount_yearly: 1200 }
+  return rates[0] || { amount_monthly: 50, amount_yearly: 600 }
 }
 
 function FeeRateModal({ currentRate, onClose, onSaved }) {
