@@ -213,6 +213,10 @@ export default function Transactions() {
   const [lastImport, setLastImport] = useState(null)
   const [autoCategorizing, setAutoCategorizing] = useState(false)
   const [autoResult, setAutoResult] = useState(null)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   async function load() {
     const { data } = await supabase
@@ -256,6 +260,26 @@ export default function Transactions() {
     }).in('id', ids)
     await load()
     setBulkApproving(false)
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkSetCategory() {
+    if (!bulkCategoryId || !selectedIds.size) return
+    setBulkSaving(true)
+    await supabase.from('transactions')
+      .update({ category_id: bulkCategoryId, updated_by: profile.id })
+      .in('id', [...selectedIds])
+    await load()
+    setBulkSaving(false)
+    setSelectedIds(new Set())
+    setBulkCategoryId('')
   }
 
   async function deleteTransaction(id) {
@@ -420,6 +444,14 @@ export default function Transactions() {
             ) : null
           })()}
           {isKasserer && (
+            <button
+              className={`btn ${bulkMode ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => { setBulkMode(v => !v); setSelectedIds(new Set()); setBulkCategoryId('') }}
+            >
+              {bulkMode ? `☑ Avslutt valg (${selectedIds.size})` : '☑ Velg flere'}
+            </button>
+          )}
+          {isKasserer && (
             <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowModal(true) }}>
               + Ny transaksjon
             </button>
@@ -441,6 +473,48 @@ export default function Transactions() {
               : `Ingen regler matchet de ${autoResult.total} ukategoriserte transaksjonene`}
           </span>
           <button onClick={() => setAutoResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 16 }}>×</button>
+        </div>
+      )}
+
+      {bulkMode && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: 'var(--surface)', border: '1px solid var(--accent)',
+          borderRadius: 8, padding: '10px 16px', marginBottom: 12,
+        }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)', minWidth: 80 }}>
+            {selectedIds.size} valgt
+          </span>
+          <select
+            className="form-select"
+            style={{ maxWidth: 260 }}
+            value={bulkCategoryId}
+            onChange={e => setBulkCategoryId(e.target.value)}
+          >
+            <option value="">Velg kategori…</option>
+            <optgroup label="Inntekt">
+              {categories.filter(c => c.type === 'inntekt').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+            <optgroup label="Utgift">
+              {categories.filter(c => c.type === 'utgift').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          </select>
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={!bulkCategoryId || !selectedIds.size || bulkSaving}
+            onClick={bulkSetCategory}
+          >
+            {bulkSaving ? 'Setter…' : `Sett kategori (${selectedIds.size})`}
+          </button>
+          <button className="btn btn-secondary btn-sm"
+            onClick={() => setSelectedIds(new Set(filtered.map(t => t.id)))}>
+            Velg alle i visning ({filtered.length})
+          </button>
+          {selectedIds.size > 0 && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setSelectedIds(new Set())}>
+              Fjern valg
+            </button>
+          )}
         </div>
       )}
 
@@ -521,6 +595,15 @@ export default function Transactions() {
                   <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
                     <thead>
                       <tr>
+                        {bulkMode && (
+                          <th style={{ width: 32 }}>
+                            <input type="checkbox"
+                              checked={filtered.length > 0 && filtered.every(t => selectedIds.has(t.id))}
+                              onChange={e => e.target.checked
+                                ? setSelectedIds(new Set(filtered.map(t => t.id)))
+                                : setSelectedIds(new Set())} />
+                          </th>
+                        )}
                         {prefs.orderedVisible.map(col => (
                           <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
                             className={col.key === 'amount' ? 'text-right' : ''}>
@@ -532,7 +615,12 @@ export default function Transactions() {
                     </thead>
                     <tbody>
                       {filtered.map(t => (
-                        <tr key={t.id}>
+                        <tr key={t.id} style={selectedIds.has(t.id) ? { background: 'var(--surface-2, #1e2a38)' } : {}}>
+                          {bulkMode && (
+                            <td style={{ paddingLeft: 8 }}>
+                              <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelect(t.id)} />
+                            </td>
+                          )}
                           {prefs.orderedVisible.map(col => renderCell(t, col.key))}
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <div className="flex gap-8">
