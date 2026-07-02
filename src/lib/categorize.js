@@ -68,7 +68,7 @@ export async function categorize(description, vendorName = null, transactionType
   const { data: vendors } = await supabase
     .from('vendors')
     .select('*')
-    .or(`normalized_name.ilike.%${vendor}%,normalized_name.ilike.%${text}%`)
+    .or(`normalized_name.ilike.%${vendor.replace(/[%_,()]/g, '')}%,normalized_name.ilike.%${text.replace(/[%_,()]/g, '')}%`)
     .order('confidence', { ascending: false })
     .limit(1)
 

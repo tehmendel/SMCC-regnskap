@@ -247,7 +247,7 @@ function parseBankCSV(text) {
 }
 
 export default function BankImport() {
-  const { profile } = useAuth()
+  const { profile, isKasserer } = useAuth()
   const navigate = useNavigate()
   const histPrefs   = useColumnPrefs('import_history', HISTORY_COLS)
   const detailPrefs = useColumnPrefs('import_history_tx', DETAIL_COLS)
@@ -494,7 +494,7 @@ export default function BankImport() {
         const existSet = new Set(
           (existing || [])
             .filter(t => t.date >= sortedDates[0])
-            .map(t => `${t.date}|${Math.round(Number(t.amount) * 100)}|${t.type}`)
+            .map(t => `${t.date}|${Math.round(Number(t.amount) * 100)}|${t.type}|${(t.description || '').slice(0, 20)}`)
         )
 
         // Manuelle utgifter (ikke bankimportert) for sum-matching
@@ -685,6 +685,8 @@ export default function BankImport() {
   function handleFiles(files) {
     const file = files?.[0]
     if (!file) return
+    if (!file.name.match(/\.(csv|txt)$/i)) { setError('Kun CSV/TXT-filer støttes'); return }
+    if (file.size > 10 * 1024 * 1024) { setError('Filen er for stor (maks 10 MB)'); return }
     analyze(file)
   }
 
@@ -697,6 +699,7 @@ export default function BankImport() {
   }
 
   async function importAll() {
+    if (!isKasserer) { setError('Kun kasserer/admin kan importere transaksjoner'); return }
     setImporting(true)
     const selected = rows.filter(r => r.selected)
 
@@ -728,7 +731,7 @@ export default function BankImport() {
       return {
         date: r.date,
         description: r.description,
-        amount: parseFloat(r.amount),
+        amount: isNaN(parseFloat(r.amount)) ? null : parseFloat(r.amount),
         type: r.type,
         category_id: r.suggested_category_id || matched?.suggested_category_id || null,
         notes: r.notes || '',

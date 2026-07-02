@@ -161,6 +161,7 @@ function ExpenseModal({ arrangement, departments, onClose, onSaved, editItem }) 
 
   async function save(e) {
     e.preventDefault()
+    if (parseFloat(form.amount) <= 0 || isNaN(parseFloat(form.amount))) { setError('Beløp må være større enn 0'); return }
     setSaving(true)
     setError('')
     // Strip any joined relation objects that came from the loaded editItem
@@ -280,6 +281,7 @@ function EditRevenueModal({ arrangement, departments, onClose, onSaved, editItem
 
   async function save(e) {
     e.preventDefault()
+    if (parseFloat(form.amount) <= 0 || isNaN(parseFloat(form.amount))) { setError('Beløp må være større enn 0'); return }
     setSaving(true)
     const payload = {
       ...form,
@@ -381,6 +383,13 @@ function LinkExpenseTxModal({ expense, onClose, onSaved }) {
 
   async function link(tx) {
     setSaving(true)
+    const { data: existing } = await supabase
+      .from('arrangement_expenses')
+      .select('id')
+      .eq('transaction_id', tx.id)
+      .neq('id', expense.id)
+      .maybeSingle()
+    if (existing) { alert('Denne banktransaksjonen er allerede koblet til en annen utgift.'); setSaving(false); return }
     await supabase.from('arrangement_expenses').update({ transaction_id: tx.id }).eq('id', expense.id)
     onSaved()
     onClose()
@@ -814,6 +823,13 @@ function LinkTxModal({ revenue, onClose, onSaved }) {
 
   async function link(tx) {
     setSaving(true)
+    const { data: existing } = await supabase
+      .from('arrangement_revenues')
+      .select('id')
+      .eq('transaction_id', tx.id)
+      .neq('id', revenue.id)
+      .maybeSingle()
+    if (existing) { alert('Denne banktransaksjonen er allerede koblet til en annen inntekt.'); setSaving(false); return }
     await supabase
       .from('arrangement_revenues')
       .update({ transaction_id: tx.id })

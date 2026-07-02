@@ -160,6 +160,12 @@ function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId =
   async function save() {
     if (!memberId) return
     setSaving(true)
+    const { data: existing } = await supabase
+      .from('member_payments')
+      .select('id')
+      .eq('transaction_id', transaction.id)
+      .maybeSingle()
+    if (existing) { alert('Denne transaksjonen er allerede koblet til en betaling.'); setSaving(false); return }
     if (!transaction.approved) {
       await supabase.from('transactions').update({
         approved: true, approved_at: new Date().toISOString(),
