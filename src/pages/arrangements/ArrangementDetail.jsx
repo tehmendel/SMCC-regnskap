@@ -1552,7 +1552,8 @@ export default function ArrangementDetail() {
                         }
                       })}
                     </tr>
-                  )})
+                  )
+                })}
                 </tbody>
               </table>
             </div>
