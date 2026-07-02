@@ -564,6 +564,226 @@ function MergeExpensesModal({ expenses, arrangement, departments, onClose, onSav
   )
 }
 
+function MergeRevenuesModal({ revenues, arrangement, departments, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [a, b] = revenues
+  const [form, setForm] = useState({
+    revenue_date: a.revenue_date,
+    description:  a.description,
+    source:       a.source || '',
+    department_id: a.department_id || '',
+    notes:        [a.notes, b.notes].filter(Boolean).join(' / '),
+    amount:       Number(a.amount) === Number(b.amount)
+      ? String(Number(a.amount))
+      : String(Number(a.amount) + Number(b.amount)),
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const amountsEqual = Number(a.amount) === Number(b.amount)
+  const keepTxId = a.transaction_id || b.transaction_id || null
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const primary = a.transaction_id ? a : b
+    const secondary = a.transaction_id ? b : a
+
+    if (secondary.transaction_id) {
+      const { error: nullErr } = await supabase
+        .from('arrangement_revenues').update({ transaction_id: null }).eq('id', secondary.id)
+      if (nullErr) { setError(nullErr.message); setSaving(false); return }
+    }
+
+    const { error: delErr } = await supabase
+      .from('arrangement_revenues').delete().eq('id', secondary.id)
+    if (delErr) { setError(delErr.message); setSaving(false); return }
+
+    const payload = {
+      revenue_date:  form.revenue_date,
+      description:   form.description,
+      source:        form.source || null,
+      department_id: form.department_id || null,
+      notes:         form.notes || null,
+      amount:        parseFloat(form.amount),
+      updated_by:    profile.id,
+    }
+    if (secondary.transaction_id) {
+      payload.transaction_id = secondary.transaction_id
+    }
+
+    const { error } = await supabase.from('arrangement_revenues').update(payload).eq('id', primary.id)
+    if (error) { setError(error.message); setSaving(false); return }
+    onSaved(); onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 580 }}>
+        <div className="modal-title">Slå sammen inntekter</div>
+        {error && <div className="alert alert-error">{error}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
+          {[a, b].map((rev) => (
+            <div key={rev.id} style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)' }}
+              onClick={() => setForm(f => ({ ...f, description: rev.description, source: rev.source || '', department_id: rev.department_id || '' }))}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>{rev.description}</div>
+              <div style={{ color: 'var(--muted)' }}>{rev.revenue_date} · {fmt(rev.amount)}</div>
+              {rev.transaction_id && <div style={{ fontSize: 10, color: 'var(--accent)', marginTop: 2 }}>⬡ bank-koblet</div>}
+              <div style={{ fontSize: 10, color: 'var(--graphite)', marginTop: 4 }}>Klikk for å bruke detaljer herfra</div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={save}>
+          <div className="form-group">
+            <label className="form-label">Beskrivelse (resultat)</label>
+            <input className="form-input" value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} required />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">
+                Beløp{amountsEqual
+                  ? ` (begge er ${fmt(a.amount)} — beholdt)`
+                  : ` (sum: ${fmt(Number(a.amount) + Number(b.amount))})`}
+              </label>
+              <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Avdeling</label>
+              <select className="form-select" value={form.department_id}
+                onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}>
+                <option value="">— ingen —</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          </div>
+          {keepTxId && (
+            <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 12 }}>
+              ⬡ Bank-kobling bevares fra eksisterende post
+            </div>
+          )}
+          <div className="flex gap-8">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Slår sammen…' : 'Slå sammen'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function VippsTransactionModal({ arrangement, vippsAccounts, onClose, onSaved, editItem }) {
+  const { profile } = useAuth()
+  const [form, setForm] = useState(editItem ? {
+    transaction_date: editItem.transaction_date ? editItem.transaction_date.split('T')[0] : '',
+    sender:           editItem.sender || '',
+    amount:           String(editItem.amount || ''),
+    fee:              String(editItem.fee || ''),
+    message:          editItem.message || '',
+    sales_location:   editItem.sales_location || '',
+    reference:        editItem.reference || '',
+    status:           editItem.status || 'CAPTURED',
+    vipps_account_id: editItem.vipps_account_id || '',
+  } : {
+    transaction_date: new Date().toISOString().split('T')[0],
+    sender: '', amount: '', fee: '', message: '',
+    sales_location: '', reference: '', status: 'CAPTURED',
+    vipps_account_id: vippsAccounts[0]?.id || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const payload = {
+      transaction_date: form.transaction_date,
+      sender:           form.sender || null,
+      amount:           parseFloat(form.amount),
+      fee:              form.fee ? parseFloat(form.fee) : null,
+      message:          form.message || null,
+      sales_location:   form.sales_location || null,
+      reference:        form.reference || null,
+      status:           form.status || null,
+      vipps_account_id: form.vipps_account_id || null,
+      arrangement_id:   arrangement.id,
+    }
+    const { error } = editItem
+      ? await supabase.from('arrangement_vipps_transactions').update(payload).eq('id', editItem.id)
+      : await supabase.from('arrangement_vipps_transactions').insert({ ...payload, created_by: profile.id })
+    if (error) setError(error.message)
+    else { onSaved(); onClose() }
+    setSaving(false)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">{editItem ? 'Rediger Vipps-transaksjon' : 'Registrer Vipps-transaksjon'}</div>
+        {error && <div className="alert alert-error">{error}</div>}
+        <form onSubmit={save}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Dato</label>
+              <input className="form-input" type="date" value={form.transaction_date}
+                onChange={e => setForm(f => ({ ...f, transaction_date: e.target.value }))} required />
+            </div>
+            {vippsAccounts.length > 0 && (
+              <div className="form-group">
+                <label className="form-label">Vipps-konto</label>
+                <select className="form-select" value={form.vipps_account_id}
+                  onChange={e => setForm(f => ({ ...f, vipps_account_id: e.target.value }))}>
+                  <option value="">— ingen —</option>
+                  {vippsAccounts.map(a => <option key={a.id} value={a.id}>{a.account_name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+          <div className="form-group">
+            <label className="form-label">Avsender</label>
+            <input className="form-input" value={form.sender}
+              onChange={e => setForm(f => ({ ...f, sender: e.target.value }))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Beløp (NOK)</label>
+              <input className="form-input" type="number" min="0" step="0.01" value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Gebyr (NOK)</label>
+              <input className="form-input" type="number" min="0" step="0.01" value={form.fee}
+                onChange={e => setForm(f => ({ ...f, fee: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Melding</label>
+              <input className="form-input" value={form.message}
+                onChange={e => setForm(f => ({ ...f, message: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Salgssted</label>
+              <input className="form-input" value={form.sales_location}
+                onChange={e => setForm(f => ({ ...f, sales_location: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex gap-8">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Avbryt</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Lagrer…' : 'Lagre'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function LinkTxModal({ revenue, onClose, onSaved }) {
   const [transactions, setTransactions] = useState([])
   const [search, setSearch] = useState('')
@@ -680,18 +900,24 @@ export default function ArrangementDetail() {
   const [showRevenueModal, setShowRevenueModal] = useState(false)
   const [editRevenue, setEditRevenue] = useState(null)
   const [linkExpenseTarget, setLinkExpenseTarget] = useState(null)
+  const [showVippsModal, setShowVippsModal] = useState(false)
+  const [editVippsTx, setEditVippsTx] = useState(null)
+  const [vippsTx, setVippsTx] = useState([])
   const [mergeMode, setMergeMode] = useState(false)
   const [selectedForMerge, setSelectedForMerge] = useState([])
+  const [mergeModeRevenues, setMergeModeRevenues] = useState(false)
+  const [selectedForMergeRevenues, setSelectedForMergeRevenues] = useState([])
   const [filterDept, setFilterDept] = useState('alle')
   const [loading, setLoading] = useState(true)
 
   async function load() {
-    const [arrRes, deptRes, expRes, revRes, vippsRes, txRes] = await Promise.all([
+    const [arrRes, deptRes, expRes, revRes, vippsRes, vippsTxRes, txRes] = await Promise.all([
       supabase.from('arrangements').select('*').eq('id', id).single(),
       supabase.from('arrangement_departments').select('*').eq('arrangement_id', id).order('sort_order'),
       supabase.from('arrangement_expenses').select('*, arrangement_departments(name)').eq('arrangement_id', id).order('expense_date'),
       supabase.from('arrangement_revenues').select('*, arrangement_departments(name)').eq('arrangement_id', id).order('revenue_date'),
       supabase.from('arrangement_vipps_accounts').select('*').eq('arrangement_id', id),
+      supabase.from('arrangement_vipps_transactions').select('*, arrangement_vipps_accounts(account_name)').eq('arrangement_id', id).order('transaction_date', { ascending: false }),
       supabase.from('transactions').select('*, categories(name)').eq('arrangement_id', id).order('date', { ascending: false }),
     ])
     setArrangement(arrRes.data)
@@ -699,6 +925,7 @@ export default function ArrangementDetail() {
     setExpenses(expRes.data || [])
     setRevenues(revRes.data || [])
     setVippsAccounts(vippsRes.data || [])
+    setVippsTx(vippsTxRes.data || [])
     setLinkedTx(txRes.data || [])
     setLoading(false)
   }
@@ -738,12 +965,25 @@ export default function ArrangementDetail() {
     )
   }
 
+  async function deleteVippsTx(tx) {
+    if (!window.confirm(`Slett Vipps-transaksjon fra ${tx.sender || '?'} (${fmt(tx.amount)})?`)) return
+    await supabase.from('arrangement_vipps_transactions').delete().eq('id', tx.id)
+    load()
+  }
+
+  function toggleMergeSelectRevenue(id) {
+    setSelectedForMergeRevenues(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]
+    )
+  }
+
   if (loading) return <div className="text-muted">Laster…</div>
   if (!arrangement) return <div className="text-muted">Arrangement ikke funnet</div>
 
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
   const totalRevenues = revenues.reduce((s, r) => s + Number(r.amount), 0)
-  const totalVipps = vippsAccounts.reduce((s, v) => s + Number(v.total_sales || 0), 0)
+  const totalVipps = vippsTx.reduce((s, t) => s + Number(t.amount || 0), 0)
+  const totalVippsFees = vippsTx.reduce((s, t) => s + Number(t.fee || 0), 0)
   const result = totalRevenues - totalExpenses
   const outstanding = expenses.filter(e => !e.reimbursed).reduce((s, e) => s + Number(e.amount), 0)
   const budgetUsedPct = arrangement.budget_total ? Math.min((totalExpenses / arrangement.budget_total) * 100, 100) : null
@@ -820,6 +1060,24 @@ export default function ArrangementDetail() {
           departments={departments}
           onClose={() => { setMergeMode(false); setSelectedForMerge([]) }}
           onSaved={() => { setMergeMode(false); setSelectedForMerge([]); load() }}
+        />
+      )}
+      {mergeModeRevenues && selectedForMergeRevenues.length === 2 && (
+        <MergeRevenuesModal
+          revenues={revenues.filter(r => selectedForMergeRevenues.includes(r.id))}
+          arrangement={arrangement}
+          departments={departments}
+          onClose={() => { setMergeModeRevenues(false); setSelectedForMergeRevenues([]) }}
+          onSaved={() => { setMergeModeRevenues(false); setSelectedForMergeRevenues([]); load() }}
+        />
+      )}
+      {showVippsModal && (
+        <VippsTransactionModal
+          arrangement={arrangement}
+          vippsAccounts={vippsAccounts}
+          editItem={editVippsTx}
+          onClose={() => { setShowVippsModal(false); setEditVippsTx(null) }}
+          onSaved={() => { setShowVippsModal(false); setEditVippsTx(null); load() }}
         />
       )}
 
@@ -1221,7 +1479,18 @@ export default function ArrangementDetail() {
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 0 }}>Inntekter ({revenues.length})</div>
-            <ColumnPicker prefs={revPrefs} />
+            <div className="flex gap-8">
+              {isKasserer && (
+                <button
+                  className={`btn btn-sm ${mergeModeRevenues ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMergeModeRevenues(v => !v); setSelectedForMergeRevenues([]) }}
+                  title="Velg to inntekter for å slå dem sammen"
+                >
+                  {mergeModeRevenues ? `Slå sammen (${selectedForMergeRevenues.length}/2 valgt)` : '⇔ Slå sammen'}
+                </button>
+              )}
+              <ColumnPicker prefs={revPrefs} />
+            </div>
           </div>
           {revenues.length === 0 ? (
             <div className="empty-state">
@@ -1242,8 +1511,16 @@ export default function ArrangementDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {revenues.map(r => (
-                    <tr key={r.id}>
+                  {revenues.map(r => {
+                    const isMergeSelectedRev = selectedForMergeRevenues.includes(r.id)
+                    return (
+                    <tr key={r.id} style={isMergeSelectedRev ? { background: 'var(--surface-2, #2a2a2a)' } : {}}>
+                      {mergeModeRevenues && (
+                        <td style={{ paddingLeft: 8, width: 28 }}>
+                          <input type="checkbox" checked={isMergeSelectedRev}
+                            onChange={() => toggleMergeSelectRevenue(r.id)} />
+                        </td>
+                      )}
                       {revPrefs.orderedVisible.map(col => {
                         switch (col.key) {
                           case 'date':        return <td key={col.key} className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.revenue_date}</td>
@@ -1275,7 +1552,7 @@ export default function ArrangementDetail() {
                         }
                       })}
                     </tr>
-                  ))}
+                  )})
                 </tbody>
               </table>
             </div>
@@ -1286,31 +1563,107 @@ export default function ArrangementDetail() {
 
       {/* VIPPS */}
       {activeTab === 'vipps' && (
-        <div className="card">
-          <div className="card-title">Vipps-kontoer</div>
-          {vippsAccounts.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">📱</div>
-              <div className="empty-state-text">Ingen Vipps-data importert ennå</div>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Konto</th><th className="text-right">Omsetning</th><th className="text-right">Transaksjoner</th><th className="text-right">Gebyrer</th><th className="text-right">Netto</th></tr></thead>
-                <tbody>
-                  {vippsAccounts.map(v => (
-                    <tr key={v.id}>
-                      <td>{v.account_name}</td>
-                      <td className="text-right amount-positive">{fmt(v.total_sales)}</td>
-                      <td className="text-right text-mono">{v.total_transactions}</td>
-                      <td className="text-right amount-negative">{fmt(v.total_fees)}</td>
-                      <td className="text-right amount-positive">{fmt(v.total_sales - v.total_fees)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div>
+          {vippsAccounts.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title">Vipps-kontoer (sammendrag)</div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Konto</th><th className="text-right">Transaksjoner</th><th className="text-right">Omsetning</th><th className="text-right">Gebyrer</th><th className="text-right">Netto</th></tr></thead>
+                  <tbody>
+                    {vippsAccounts.map(v => {
+                      const txForAccount = vippsTx.filter(t => t.vipps_account_id === v.id)
+                      const sales = txForAccount.reduce((s, t) => s + Number(t.amount || 0), 0)
+                      const fees  = txForAccount.reduce((s, t) => s + Number(t.fee || 0), 0)
+                      return (
+                        <tr key={v.id}>
+                          <td>{v.account_name}</td>
+                          <td className="text-right text-mono">{txForAccount.length}</td>
+                          <td className="text-right amount-positive">{fmt(sales)}</td>
+                          <td className="text-right amount-negative">{fmt(fees)}</td>
+                          <td className="text-right amount-positive">{fmt(sales - fees)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 0 }}>Vipps-transaksjoner ({vippsTx.length})</div>
+              {isKasserer && (
+                <button className="btn btn-primary btn-sm" onClick={() => { setEditVippsTx(null); setShowVippsModal(true) }}>
+                  + Registrer
+                </button>
+              )}
+            </div>
+            {vippsTx.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">📱</div>
+                <div className="empty-state-text">Ingen Vipps-transaksjoner registrert ennå</div>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Dato</th>
+                      <th>Avsender</th>
+                      <th>Melding</th>
+                      {vippsAccounts.length > 0 && <th>Konto</th>}
+                      <th className="text-right">Beløp</th>
+                      <th className="text-right">Gebyr</th>
+                      <th className="text-right">Netto</th>
+                      {isKasserer && <th style={{ width: 80 }} />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vippsTx.map(t => (
+                      <tr key={t.id}>
+                        <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {t.transaction_date ? t.transaction_date.split('T')[0] : '—'}
+                        </td>
+                        <td>{t.sender || '—'}</td>
+                        <td style={{ color: 'var(--muted)', fontSize: 12 }}>{t.message || '—'}</td>
+                        {vippsAccounts.length > 0 && (
+                          <td style={{ color: 'var(--muted)', fontSize: 12 }}>
+                            {t.arrangement_vipps_accounts?.account_name || '—'}
+                          </td>
+                        )}
+                        <td className="text-right amount-positive">{fmt(t.amount)}</td>
+                        <td className="text-right amount-negative">{t.fee ? fmt(t.fee) : '—'}</td>
+                        <td className="text-right amount-positive">{fmt(Number(t.amount) - Number(t.fee || 0))}</td>
+                        {isKasserer && (
+                          <td>
+                            <div className="flex gap-8">
+                              <button className="btn btn-sm btn-secondary" title="Rediger"
+                                onClick={() => { setEditVippsTx(t); setShowVippsModal(true) }}>✎</button>
+                              <button className="btn btn-sm" title="Slett"
+                                style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--red)', padding: '2px 7px' }}
+                                onClick={() => deleteVippsTx(t)}>✕</button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={vippsAccounts.length > 0 ? 4 : 3} style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                        TOTAL
+                      </td>
+                      <td className="text-right amount-positive" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmt(totalVipps)}</td>
+                      <td className="text-right amount-negative" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmt(totalVippsFees)}</td>
+                      <td className="text-right amount-positive" style={{ paddingTop: 12, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmt(totalVipps - totalVippsFees)}</td>
+                      {isKasserer && <td />}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
