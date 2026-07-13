@@ -30,14 +30,20 @@ function parseBool(v, def = false) {
 }
 
 function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/)
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  // Strip UTF-8 BOM (Excel adds this)
+  const clean = text.replace(/^﻿/, '').trim()
+  const lines = clean.split(/\r?\n/)
+  // Auto-detect delimiter: semicolon (Norwegian Excel) or comma
+  const firstLine = lines[0]
+  const sep = firstLine.includes(';') && !firstLine.includes(',') ? ';'
+    : (firstLine.split(';').length > firstLine.split(',').length ? ';' : ',')
+  const headers = firstLine.split(sep).map(h => h.trim().replace(/^"|"$/g, ''))
   return lines.slice(1).filter(l => l.trim()).map(line => {
     const values = []
     let cur = '', inQ = false
     for (const ch of line) {
       if (ch === '"') inQ = !inQ
-      else if (ch === ',' && !inQ) { values.push(cur.trim()); cur = '' }
+      else if (ch === sep && !inQ) { values.push(cur.trim()); cur = '' }
       else cur += ch
     }
     values.push(cur.trim())
@@ -211,7 +217,7 @@ export default function MemberRegistry() {
       }
       setCsvPreview(rows)
     } catch {
-      alert('Ugyldig CSV-format. Kontroller at kolonner er kommaseparert.')
+      alert('Ugyldig CSV-format. Kontroller at kolonner er komma- eller semikolonseparert.')
     }
   }
 
@@ -237,10 +243,10 @@ export default function MemberRegistry() {
       let res
       if (existing) {
         res = await supabase.from('members').update(payload).eq('id', existing.id)
-        if (!res.error) updated++; else errors++
+        if (!res.error) updated++; else { errors++; console.error('update error', res.error, payload) }
       } else {
         res = await supabase.from('members').insert(payload)
-        if (!res.error) inserted++; else errors++
+        if (!res.error) inserted++; else { errors++; console.error('insert error', res.error, payload) }
       }
     }
     setImportResult({ inserted, updated, errors })
