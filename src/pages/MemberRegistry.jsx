@@ -8,19 +8,20 @@ import { CardGrid } from '../components/CardGrid'
 import { ResizableTh } from '../components/ResizableTh'
 
 const CSV_HEADERS = [
-  'full_name','email','phone','address','postal_code','city','country',
+  'full_name','email','phone','gender','address','postal_code','city','country',
   'payment_type','in_reisekasse','notes','start_date','end_date','period_notes',
 ]
 
-const CSV_TEMPLATE = `full_name,email,phone,address,postal_code,city,country,payment_type,in_reisekasse,notes,start_date,end_date,period_notes
-Ola Nordmann,ola@example.com,99999999,Storgata 1,0123,Oslo,Norge,monthly,false,,2024-01-01,,
-Kari Nordmann,kari@example.com,,Lillegata 2,5020,Bergen,Norge,yearly,true,,2018-01-01,2020-06-30,Første periode
-Kari Nordmann,,,,,,,,,,2023-01-01,,Aktiv igjen`
+const CSV_TEMPLATE = `full_name,email,phone,gender,address,postal_code,city,country,payment_type,in_reisekasse,notes,start_date,end_date,period_notes
+Ola Nordmann,ola@example.com,99999999,mann,Storgata 1,0123,Oslo,Norge,monthly,false,,2024-01-01,,
+Kari Nordmann,kari@example.com,,kvinne,Lillegata 2,5020,Bergen,Norge,yearly,true,,2018-01-01,2020-06-30,Første periode
+Kari Nordmann,,,,,,,,,,,2023-01-01,,Aktiv igjen`
 
 const COLUMNS = [
   { key: 'full_name',     label: 'Navn' },
   { key: 'email',         label: 'E-post' },
   { key: 'phone',         label: 'Telefon',        default: false },
+  { key: 'gender',        label: 'Kjønn',          default: false },
   { key: 'address',       label: 'Adresse',        default: false },
   { key: 'postal_code',   label: 'Postnr',         default: false },
   { key: 'city',          label: 'Sted',           default: false },
@@ -206,7 +207,7 @@ function PeriodsSection({ memberId, onChanged }) {
 
 function MemberModal({ member, onClose, onSaved }) {
   const emptyForm = {
-    full_name: '', email: '', phone: '',
+    full_name: '', email: '', phone: '', gender: '',
     address: '', postal_code: '', city: '', country: 'Norge',
     payment_type: 'monthly', in_reisekasse: false, notes: '',
   }
@@ -214,6 +215,7 @@ function MemberModal({ member, onClose, onSaved }) {
     full_name:    member.full_name    || '',
     email:        member.email        || '',
     phone:        member.phone        || '',
+    gender:       member.gender       || '',
     address:      member.address      || '',
     postal_code:  member.postal_code  || '',
     city:         member.city         || '',
@@ -234,6 +236,7 @@ function MemberModal({ member, onClose, onSaved }) {
       full_name:    form.full_name,
       email:        form.email        || null,
       phone:        form.phone        || null,
+      gender:       ['mann','kvinne','annet'].includes(form.gender) ? form.gender : null,
       address:      form.address      || null,
       postal_code:  form.postal_code  || null,
       city:         form.city         || null,
@@ -269,7 +272,7 @@ function MemberModal({ member, onClose, onSaved }) {
               onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">E-post</label>
               <input className="form-input" type="email" value={form.email}
@@ -279,6 +282,16 @@ function MemberModal({ member, onClose, onSaved }) {
               <label className="form-label">Telefon</label>
               <input className="form-input" value={form.phone}
                 onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Kjønn</label>
+              <select className="form-select" value={form.gender}
+                onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
+                <option value="">—</option>
+                <option value="mann">Mann</option>
+                <option value="kvinne">Kvinne</option>
+                <option value="annet">Annet</option>
+              </select>
             </div>
           </div>
 
@@ -473,6 +486,7 @@ export default function MemberRegistry() {
         full_name:    name,
         email:        infoRow.email        || null,
         phone:        infoRow.phone        || null,
+        gender:       ['mann','kvinne','annet'].includes(infoRow.gender) ? infoRow.gender : null,
         address:      infoRow.address      || null,
         postal_code:  infoRow.postal_code  || null,
         city:         infoRow.city         || null,
@@ -542,6 +556,9 @@ export default function MemberRegistry() {
       case 'full_name':    return <td key={key} style={{ fontWeight: 500 }}>{m.full_name}</td>
       case 'email':        return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.email || '—'}</td>
       case 'phone':        return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.phone || '—'}</td>
+      case 'gender':       return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>
+        {m.gender ? m.gender.charAt(0).toUpperCase() + m.gender.slice(1) : '—'}
+      </td>
       case 'address':      return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.address || '—'}</td>
       case 'postal_code':  return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.postal_code || '—'}</td>
       case 'city':         return <td key={key} style={{ color: 'var(--muted)', fontSize: 12 }}>{m.city || '—'}</td>
