@@ -429,7 +429,7 @@ export default function MemberRegistry() {
             if (h === 'end_date')     return csvCell(p.end_date   || '')
             if (h === 'period_notes') return csvCell(p.notes      || '')
             // Contact info only on first period row to keep CSV readable
-            if (i > 0 && ['email','phone','address','postal_code','city','country'].includes(h)) return ''
+            if (i > 0 && ['email','phone','gender','address','postal_code','city','country'].includes(h)) return ''
             return csvCell(m[h] ?? '')
           }).join(','))
         })
@@ -682,7 +682,7 @@ export default function MemberRegistry() {
                 <br />
                 <strong style={{ color: 'var(--dim)' }}>Kontakt:</strong>{' '}
                 <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  email · phone · address · postal_code · city · country
+                  email · phone · gender (mann|kvinne|annet) · address · postal_code · city · country
                 </span>
                 <br />
                 <strong style={{ color: 'var(--dim)' }}>Periode:</strong>{' '}
