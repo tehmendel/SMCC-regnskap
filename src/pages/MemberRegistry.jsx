@@ -485,7 +485,7 @@ export default function MemberRegistry() {
   async function runImport() {
     if (!csvPreview) return
     setImporting(true)
-    let inserted = 0, updated = 0, periodsAdded = 0, errors = 0
+    let inserted = 0, updated = 0, periodsAdded = 0, periodsUpdated = 0, errors = 0
 
     // Group rows by normalised full_name
     const groups = {}
@@ -538,22 +538,30 @@ export default function MemberRegistry() {
         const { data: dup } = await supabase
           .from('member_periods').select('id')
           .eq('member_id', memberId).eq('start_date', startDate).maybeSingle()
-        if (dup) continue
 
-        const res = await supabase.from('member_periods').insert({
-          member_id:  memberId,
-          start_date: startDate,
-          end_date:   norToIso(row.end_date) || null,
-          notes:      row.period_notes || null,
-        })
-        if (!res.error) periodsAdded++
-        else console.error('period insert error', res.error)
+        if (dup) {
+          const res = await supabase.from('member_periods').update({
+            end_date: norToIso(row.end_date) || null,
+            notes:    row.period_notes || null,
+          }).eq('id', dup.id)
+          if (!res.error) periodsUpdated++
+          else console.error('period update error', res.error)
+        } else {
+          const res = await supabase.from('member_periods').insert({
+            member_id:  memberId,
+            start_date: startDate,
+            end_date:   norToIso(row.end_date) || null,
+            notes:      row.period_notes || null,
+          })
+          if (!res.error) periodsAdded++
+          else console.error('period insert error', res.error)
+        }
       }
 
       await syncMemberFromPeriods(memberId)
     }
 
-    setImportResult({ inserted, updated, periodsAdded, errors })
+    setImportResult({ inserted, updated, periodsAdded, periodsUpdated, errors })
     setImporting(false)
     setCsvPreview(null)
     setCsvText('')
@@ -810,6 +818,7 @@ export default function MemberRegistry() {
                     <strong style={{ color: 'var(--green)' }}>{importResult.inserted} nye</strong>,{' '}
                     <strong style={{ color: 'var(--yellow)' }}>{importResult.updated} oppdatert</strong>,{' '}
                     <strong style={{ color: 'var(--green)' }}>{importResult.periodsAdded} perioder lagt til</strong>
+                    {importResult.periodsUpdated > 0 && <>, <strong style={{ color: 'var(--yellow)' }}>{importResult.periodsUpdated} perioder oppdatert</strong></>}
                     {importResult.errors > 0 && <>, <strong style={{ color: 'var(--red)' }}>{importResult.errors} feil (se konsoll)</strong></>}
                   </span>
                   <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}
