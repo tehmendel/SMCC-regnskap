@@ -15,7 +15,20 @@ export function fmtNum(n) {
 
 export function fmtDate(d) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('nb-NO')
+  const s = String(d).slice(0, 10)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (m) return `${m[3]}.${m[2]}.${m[1]}`
+  return new Date(d).toLocaleDateString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+// Parse Norwegian date (dd.mm.yyyy) or ISO (yyyy-mm-dd) to ISO string for DB
+export function parseNorDate(s) {
+  if (!s) return null
+  s = String(s).trim()
+  const nor = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
+  if (nor) return `${nor[3]}-${nor[2].padStart(2, '0')}-${nor[1].padStart(2, '0')}`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  return null
 }
 
 export function fmtPct(n) {

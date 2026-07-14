@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { fmt } from '../lib/format'
+import { fmt, fmtDate } from '../lib/format'
 import { useColumnPrefs } from '../hooks/useColumnPrefs'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { ResizableTh } from '../components/ResizableTh'
@@ -352,7 +352,7 @@ export default function BankImport() {
         .maybeSingle()
 
       if (existing) {
-        const d = new Date(existing.imported_at).toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' })
+        const d = fmtDate(existing.imported_at)
         const go = window.confirm(`"${existing.filename}" er allerede importert (${d}).\n\nVil du importere samme fil på nytt?`)
         if (!go) { setAnalyzing(false); return }
       }
@@ -758,7 +758,7 @@ export default function BankImport() {
         year: lastDate.getFullYear(),
         month: lastDate.getMonth() + 1,
         balance: detectedAccount.lastBalance,
-        notes: `Auto-oppdatert ved import ${new Date().toLocaleDateString('nb-NO')}`,
+        notes: `Auto-oppdatert ved import ${fmtDate(new Date().toISOString())}`,
       }, { onConflict: 'account_id,year,month' })
     }
 
@@ -847,7 +847,7 @@ export default function BankImport() {
                   {history.map(imp => {
                     const isOpen = expandedId === imp.id
                     const d = new Date(imp.imported_at)
-                    const dateStr = d.toLocaleDateString('nb-NO', { day: '2-digit', month: 'short', year: 'numeric' })
+                    const dateStr = fmtDate(imp.imported_at)
                     const timeStr = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
                     return (
                       <>

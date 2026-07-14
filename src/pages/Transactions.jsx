@@ -155,7 +155,7 @@ const EyeIcon = () => (
 )
 
 function TxDetailModal({ tx, onClose }) {
-  const fmtDate = d => d ? new Date(d).toLocaleString('nb-NO') : '—'
+  const fmtDate = d => d ? new Date(d).toLocaleString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
   const fields = [
     { label: 'ID',           value: tx.id, mono: true },
     { label: 'Dato',         value: tx.date },

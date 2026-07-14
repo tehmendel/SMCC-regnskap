@@ -13,9 +13,9 @@ const CSV_HEADERS = [
 ]
 
 const CSV_TEMPLATE = `full_name,email,phone,gender,address,postal_code,city,country,payment_type,in_reisekasse,notes,start_date,end_date,period_notes
-Ola Nordmann,ola@example.com,99999999,mann,Storgata 1,0123,Oslo,Norge,monthly,false,,2024-01-01,,
-Kari Nordmann,kari@example.com,,kvinne,Lillegata 2,5020,Bergen,Norge,yearly,true,,2018-01-01,2020-06-30,Første periode
-Kari Nordmann,,,,,,,,,,,2023-01-01,,Aktiv igjen`
+Ola Nordmann,ola@example.com,99999999,mann,Storgata 1,0123,Oslo,Norge,monthly,false,,01.01.2024,,
+Kari Nordmann,kari@example.com,,kvinne,Lillegata 2,5020,Bergen,Norge,yearly,true,,01.01.2018,30.06.2020,Første periode
+Kari Nordmann,,,,,,,,,,,01.01.2023,,Aktiv igjen`
 
 const COLUMNS = [
   { key: 'full_name',     label: 'Navn' },
@@ -34,6 +34,21 @@ const COLUMNS = [
   { key: 'notes',         label: 'Notater',        default: false },
   { key: 'actions',       label: 'Handlinger' },
 ]
+
+function isoToNor(s) {
+  if (!s) return ''
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : s
+}
+
+function norToIso(s) {
+  if (!s) return null
+  s = String(s).trim()
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  return null
+}
 
 function parseBool(v, def = false) {
   if (v === undefined || v === '') return def
@@ -425,8 +440,8 @@ export default function MemberRegistry() {
       if (m.periods.length > 0) {
         m.periods.forEach((p, i) => {
           rows.push(CSV_HEADERS.map(h => {
-            if (h === 'start_date')   return csvCell(p.start_date || '')
-            if (h === 'end_date')     return csvCell(p.end_date   || '')
+            if (h === 'start_date')   return csvCell(isoToNor(p.start_date))
+            if (h === 'end_date')     return csvCell(isoToNor(p.end_date))
             if (h === 'period_notes') return csvCell(p.notes      || '')
             // Contact info only on first period row to keep CSV readable
             if (i > 0 && ['email','phone','gender','address','postal_code','city','country'].includes(h)) return ''
@@ -513,7 +528,7 @@ export default function MemberRegistry() {
 
       // Insert periods (support both start_date and legacy join_date)
       for (const row of rows) {
-        const startDate = row.start_date || row.join_date
+        const startDate = norToIso(row.start_date || row.join_date)
         if (!startDate) continue
 
         const { data: dup } = await supabase
@@ -524,7 +539,7 @@ export default function MemberRegistry() {
         const res = await supabase.from('member_periods').insert({
           member_id:  memberId,
           start_date: startDate,
-          end_date:   row.end_date || null,
+          end_date:   norToIso(row.end_date) || null,
           notes:      row.period_notes || null,
         })
         if (!res.error) periodsAdded++
@@ -684,7 +699,7 @@ export default function MemberRegistry() {
                 <br />
                 <strong style={{ color: 'var(--dim)' }}>Periode:</strong>{' '}
                 <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  start_date · end_date (tom = aktiv nå) · period_notes
+                  start_date · end_date (dd.mm.åååå, tom = aktiv nå) · period_notes
                 </span>
                 <br />
                 <strong style={{ color: 'var(--dim)' }}>Historikk:</strong>{' '}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { fmtDate } from '../lib/format'
 
 const ROLES = ['admin', 'kasserer', 'medlem']
 
@@ -69,7 +70,7 @@ export default function Users() {
                     </span>
                   </td>
                   <td className="text-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {new Date(u.created_at).toLocaleDateString('nb-NO')}
+                    {fmtDate(u.created_at)}
                   </td>
                   <td>
                     {u.id !== myProfile?.id && (
