@@ -392,10 +392,12 @@ export default function MemberRegistry() {
   const [loading, setLoading]       = useState(true)
   const [showModal, setShowModal]   = useState(false)
   const [editMember, setEditMember] = useState(null)
-  const [search, setSearch]             = useState('')
-  const [filterActive, setFilterActive] = useState('active')
+  const [search, setSearch]               = useState('')
+  const [filterActive, setFilterActive]   = useState('active')
   const [filterPayment, setFilterPayment] = useState('')
-  const [filterYear, setFilterYear]     = useState('')
+  const [filterYear, setFilterYear]       = useState('')
+  const [sortCol, setSortCol]             = useState('full_name')
+  const [sortDir, setSortDir]             = useState('asc')
   const [showImport, setShowImport] = useState(false)
   const [csvText, setCsvText]       = useState('')
   const [csvPreview, setCsvPreview] = useState(null)
@@ -558,7 +560,29 @@ export default function MemberRegistry() {
     load()
   }
 
-  // --- Filtering & rendering -------------------------------------------------
+  // --- Filtering, sorting & rendering ----------------------------------------
+
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  function sortIndicator(col) {
+    if (sortCol !== col) return <span style={{ color: 'var(--border)', marginLeft: 4 }}>⇅</span>
+    return <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
+  }
+
+  function memberSearchText(m) {
+    return [
+      m.full_name, m.email, m.phone, m.gender,
+      m.address, m.postal_code, m.city, m.country, m.notes,
+      m.payment_type === 'yearly' ? 'årlig' : 'månedlig',
+      m.in_reisekasse ? 'ja reisekasse' : '',
+      m.active ? 'aktiv' : 'inaktiv',
+      isoToNor(m.join_date),
+      ...(m.periods || []).flatMap(p => [isoToNor(p.start_date), isoToNor(p.end_date), p.notes]),
+    ].filter(Boolean).join(' ').toLowerCase()
+  }
 
   const availableYears = (() => {
     const years = new Set()
@@ -583,13 +607,22 @@ export default function MemberRegistry() {
       )
       if (!hadPeriod) return false
     }
-    if (search) {
-      const q = search.toLowerCase()
-      if (!m.full_name?.toLowerCase().includes(q) &&
-          !m.email?.toLowerCase().includes(q) &&
-          !m.phone?.toLowerCase().includes(q)) return false
-    }
+    if (search && !memberSearchText(m).includes(search.toLowerCase())) return false
     return true
+  })
+
+  const UNSORTABLE = new Set(['actions'])
+  const sorted = [...filtered].sort((a, b) => {
+    if (UNSORTABLE.has(sortCol)) return 0
+    let va, vb
+    switch (sortCol) {
+      case 'periods':       va = (a.periods||[]).length;      vb = (b.periods||[]).length;      break
+      case 'in_reisekasse': va = a.in_reisekasse ? 1 : 0;    vb = b.in_reisekasse ? 1 : 0;    break
+      case 'active':        va = a.active ? 1 : 0;           vb = b.active ? 1 : 0;            break
+      default:              va = String(a[sortCol] ?? '').toLowerCase(); vb = String(b[sortCol] ?? '').toLowerCase()
+    }
+    const cmp = typeof va === 'number' ? va - vb : va.localeCompare(vb, 'nb')
+    return sortDir === 'asc' ? cmp : -cmp
   })
 
   function renderCell(m, key) {
@@ -880,15 +913,18 @@ export default function MemberRegistry() {
                   <thead>
                     <tr>
                       {prefs.orderedVisible.map(col => (
-                        <ResizableTh key={col.key} colKey={col.key} prefs={prefs}>{col.label}</ResizableTh>
+                        <ResizableTh key={col.key} colKey={col.key} prefs={prefs}
+                          onClick={UNSORTABLE.has(col.key) ? undefined : () => toggleSort(col.key)}>
+                          {col.label}{UNSORTABLE.has(col.key) ? null : sortIndicator(col.key)}
+                        </ResizableTh>
                       ))}
                       {isKasserer && <th style={{ width: 80 }} />}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.length === 0 ? (
+                    {sorted.length === 0 ? (
                       <tr><td colSpan={99} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Ingen treff</td></tr>
-                    ) : filtered.map(m => (
+                    ) : sorted.map(m => (
                       <tr key={m.id}>
                         {prefs.orderedVisible.map(col => renderCell(m, col.key))}
                         {isKasserer && (

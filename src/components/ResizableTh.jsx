@@ -1,10 +1,11 @@
 import { useRef } from 'react'
 
-export function ResizableTh({ colKey, prefs, children, className, style }) {
+export function ResizableTh({ colKey, prefs, children, className, style, onClick }) {
   const thRef = useRef()
 
   function onMouseDown(e) {
     e.preventDefault()
+    e.stopPropagation()
     const startX = e.clientX
     const startW = thRef.current.offsetWidth
 
@@ -25,7 +26,8 @@ export function ResizableTh({ colKey, prefs, children, className, style }) {
     <th
       ref={thRef}
       className={className}
-      style={{ ...style, width: w ? `${w}px` : undefined, position: 'relative', userSelect: 'none' }}
+      style={{ ...style, width: w ? `${w}px` : undefined, position: 'relative', userSelect: 'none', cursor: onClick ? 'pointer' : undefined }}
+      onClick={onClick}
     >
       {children}
       <div
