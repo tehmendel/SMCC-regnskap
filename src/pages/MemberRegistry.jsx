@@ -392,8 +392,10 @@ export default function MemberRegistry() {
   const [loading, setLoading]       = useState(true)
   const [showModal, setShowModal]   = useState(false)
   const [editMember, setEditMember] = useState(null)
-  const [search, setSearch]         = useState('')
+  const [search, setSearch]             = useState('')
   const [filterActive, setFilterActive] = useState('active')
+  const [filterPayment, setFilterPayment] = useState('')
+  const [filterYear, setFilterYear]     = useState('')
   const [showImport, setShowImport] = useState(false)
   const [csvText, setCsvText]       = useState('')
   const [csvPreview, setCsvPreview] = useState(null)
@@ -558,11 +560,35 @@ export default function MemberRegistry() {
 
   // --- Filtering & rendering -------------------------------------------------
 
+  const availableYears = (() => {
+    const years = new Set()
+    members.forEach(m => (m.periods || []).forEach(p => {
+      if (p.start_date) years.add(p.start_date.slice(0, 4))
+      if (p.end_date)   years.add(p.end_date.slice(0, 4))
+    }))
+    const current = String(new Date().getFullYear())
+    years.add(current)
+    return [...years].sort((a, b) => b.localeCompare(a))
+  })()
+
   const filtered = members.filter(m => {
     if (filterActive === 'active'     && !m.active)        return false
     if (filterActive === 'inactive'   &&  m.active)        return false
     if (filterActive === 'reisekasse' && !m.in_reisekasse) return false
-    if (search && !m.full_name.toLowerCase().includes(search.toLowerCase())) return false
+    if (filterPayment && m.payment_type !== filterPayment)  return false
+    if (filterYear) {
+      const ys = `${filterYear}-01-01`, ye = `${filterYear}-12-31`
+      const hadPeriod = (m.periods || []).some(p =>
+        p.start_date <= ye && (!p.end_date || p.end_date >= ys)
+      )
+      if (!hadPeriod) return false
+    }
+    if (search) {
+      const q = search.toLowerCase()
+      if (!m.full_name?.toLowerCase().includes(q) &&
+          !m.email?.toLowerCase().includes(q) &&
+          !m.phone?.toLowerCase().includes(q)) return false
+    }
     return true
   })
 
@@ -812,8 +838,8 @@ export default function MemberRegistry() {
         id: 'tabell',
         content: (
           <div className="card">
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input className="form-input" style={{ maxWidth: 280 }} placeholder="Søk navn…"
+              <div style={{ display: 'flex', gap: 12, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input className="form-input" style={{ maxWidth: 260 }} placeholder="Søk navn, e-post, tlf…"
                   value={search} onChange={e => setSearch(e.target.value)} />
                 {[
                   { key: 'active',     label: 'Aktive' },
@@ -826,8 +852,28 @@ export default function MemberRegistry() {
                     {f.label}
                   </button>
                 ))}
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
                 <ColumnPicker prefs={prefs} style={{ marginLeft: 'auto' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select className="form-input" style={{ maxWidth: 160 }}
+                  value={filterPayment} onChange={e => setFilterPayment(e.target.value)}>
+                  <option value="">Alle betalingsformer</option>
+                  <option value="monthly">Månedlig</option>
+                  <option value="yearly">Årlig</option>
+                </select>
+                <select className="form-input" style={{ maxWidth: 160 }}
+                  value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+                  <option value="">Alle år</option>
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>Aktiv i {y}</option>
+                  ))}
+                </select>
+                {(search || filterPayment || filterYear || filterActive !== 'active') && (
+                  <button className="btn btn-sm btn-secondary" onClick={() => {
+                    setSearch(''); setFilterPayment(''); setFilterYear(''); setFilterActive('active')
+                  }}>Nullstill</button>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} treff</span>
               </div>
               <div className="table-wrap">
                 <table style={hasAnyWidth ? { tableLayout: 'fixed' } : {}}>
