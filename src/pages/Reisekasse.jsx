@@ -221,9 +221,9 @@ function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId =
           <div className="form-group">
             <label className="form-label">Gjelder år</label>
             <select className="form-select" value={payYear} onChange={e => setPayYear(parseInt(e.target.value))}>
-              <option value={txDateYear - 1}>{txDateYear - 1}</option>
-              <option value={txDateYear}>{txDateYear}</option>
-              <option value={txDateYear + 1}>{txDateYear + 1}</option>
+              {Array.from({ length: txDateYear + 2 - 2020 }, (_, i) => 2020 + i).map(y =>
+                <option key={y} value={y}>{y}</option>
+              )}
             </select>
             {isJanYearly && payYear === txDateYear && (
               <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4 }}>
