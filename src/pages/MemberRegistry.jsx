@@ -670,12 +670,9 @@ export default function MemberRegistry() {
         </div>
       </div>
 
-      <CardGrid pageKey="members-register" cards={[
-        ...(showImport ? [{
-          id: 'csv-import',
-          content: (
-            <div className="card">
-              <div className="card-title">CSV-import</div>
+      {showImport && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">CSV-import</div>
               <div style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--surface)', borderRadius: 6, fontSize: 12, lineHeight: 1.8 }}>
                 <strong style={{ color: 'var(--dim)' }}>Påkrevd:</strong>{' '}
                 <span style={{ color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>full_name</span>
@@ -793,13 +790,13 @@ export default function MemberRegistry() {
                   </div>
                 )
               })()}
-            </div>
-          ),
-        }] : []),
-        {
-          id: 'tabell',
-          content: (
-            <div className="card">
+        </div>
+      )}
+
+      <CardGrid pageKey="members-register" cards={[{
+        id: 'tabell',
+        content: (
+          <div className="card">
               <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input className="form-input" style={{ maxWidth: 280 }} placeholder="Søk navn…"
                   value={search} onChange={e => setSearch(e.target.value)} />
@@ -850,9 +847,8 @@ export default function MemberRegistry() {
                 </table>
               </div>
             </div>
-          ),
-        },
-      ]} />
+        ),
+      }]} />
     </div>
   )
 }
