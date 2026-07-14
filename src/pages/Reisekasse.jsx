@@ -141,7 +141,7 @@ function FeeRateModal({ currentRate, onClose, onSaved }) {
   )
 }
 
-function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId = '' }) {
+function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId = '', feeRates = [] }) {
   const [memberId, setMemberId] = useState(suggestedMemberId)
   const txDateYear = new Date(transaction.date).getFullYear()
   const txMonth = new Date(transaction.date).getMonth() + 1
@@ -149,7 +149,14 @@ function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId =
   const [payYear, setPayYear] = useState(txDateYear)
   const [saving, setSaving] = useState(false)
   const selected = members.find(m => m.id === memberId)
-  const isYearly = selected?.reisekasse_payment_type === 'yearly'
+  const yearlyRate = feeRates[0]?.amount_yearly ?? 1200
+  const monthlyRate = feeRates[0]?.amount_monthly ?? 100
+  const [coverageMode, setCoverageMode] = useState(
+    Number(transaction.amount) === yearlyRate ? 'year' :
+    Number(transaction.amount) === monthlyRate ? 'month' :
+    (selected?.reisekasse_payment_type === 'yearly' ? 'year' : 'month')
+  )
+  const isYearly = coverageMode === 'year'
   const isJanYearly = isYearly && txMonth === 1
 
   async function save() {
@@ -192,6 +199,15 @@ function LinkModal({ transaction, members, onClose, onSaved, suggestedMemberId =
             <option value="">— velg —</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
           </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Dekker</label>
+          <div className="flex gap-8">
+            <button type="button" className={`btn ${coverageMode === 'month' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setCoverageMode('month')}>Spesifikk måned</button>
+            <button type="button" className={`btn ${coverageMode === 'year' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setCoverageMode('year')}>Hel år ({yearlyRate} kr)</button>
+          </div>
         </div>
         {!isYearly && (
           <div className="form-group">
@@ -324,7 +340,10 @@ export default function Reisekasse() {
       if (match.score >= 0.9) {
         const txYear = new Date(tx.date).getFullYear()
         const txMonth = new Date(tx.date).getMonth() + 1
-        const isYearly = match.member.reisekasse_payment_type === 'yearly'
+        const txAmount = Number(tx.amount)
+        const rateYearly = feeRates[0]?.amount_yearly ?? 1200
+        const rateMonthly = feeRates[0]?.amount_monthly ?? 100
+        const isYearly = txAmount === rateYearly ? true : txAmount === rateMonthly ? false : match.member.reisekasse_payment_type === 'yearly'
         const slotKey = `${match.member.id}:${isYearly ? 'all' : txMonth}`
         const alreadyCovered =
           payments.some(p =>
@@ -439,6 +458,7 @@ export default function Reisekasse() {
           transaction={linkTx}
           members={rkMembers}
           suggestedMemberId={linkSuggestedId}
+          feeRates={feeRates}
           onClose={() => { setLinkTx(null); setLinkSuggestedId('') }}
           onSaved={load}
         />
