@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from './context/AuthContext'
+import versionData from './version.json'
 import { supabase } from './supabaseClient'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -85,6 +86,9 @@ function Sidebar() {
       <button className="sidebar-item" onClick={signOut}>
         <span>⊗</span> Logg ut
       </button>
+      <div style={{ padding: '6px 20px 10px', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', opacity: 0.5 }}>
+        v{versionData.version}
+      </div>
     </aside>
   )
 }
