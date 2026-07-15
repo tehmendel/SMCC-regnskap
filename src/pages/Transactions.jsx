@@ -19,7 +19,6 @@ const COLUMNS = [
   { key: 'status',      label: 'Status' },
   { key: 'notes',       label: 'Notater',    default: false },
   { key: 'imported',    label: 'Bankimport', default: false },
-  { key: 'actions',     label: 'Handlinger' },
 ]
 
 function Modal({ onClose, onSaved, editItem }) {

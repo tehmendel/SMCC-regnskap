@@ -24,7 +24,6 @@ const EXP_COLS = [
   { key: 'amount',      label: 'Beløp' },
   { key: 'reimbursed',  label: 'Status' },
   { key: 'notes',       label: 'Kommentar',       default: false },
-  { key: 'actions',     label: 'Handlinger' },
 ]
 
 const REV_COLS = [
@@ -33,7 +32,6 @@ const REV_COLS = [
   { key: 'source',      label: 'Kilde' },
   { key: 'department',  label: 'Avdeling' },
   { key: 'amount',      label: 'Beløp' },
-  { key: 'actions',     label: 'Kobling', default: true },
 ]
 
 const LINKED_TX_COLS = [

@@ -32,7 +32,6 @@ const COLUMNS = [
   { key: 'in_reisekasse', label: 'Reisekassen' },
   { key: 'active',        label: 'Status' },
   { key: 'notes',         label: 'Notater',        default: false },
-  { key: 'actions',       label: 'Handlinger' },
 ]
 
 function isoToNor(s) {
