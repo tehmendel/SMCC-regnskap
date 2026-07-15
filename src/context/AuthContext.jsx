@@ -5,7 +5,8 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
+  const [realProfile, setRealProfile] = useState(null)
+  const [impersonatedProfile, setImpersonatedProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -18,7 +19,7 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
-      else { setProfile(null); setLoading(false) }
+      else { setRealProfile(null); setImpersonatedProfile(null); setLoading(false) }
     })
 
     return () => subscription.unsubscribe()
@@ -30,7 +31,7 @@ export function AuthProvider({ children }) {
       .select('*')
       .eq('id', userId)
       .single()
-    setProfile(data)
+    setRealProfile(data)
     setLoading(false)
   }
 
@@ -40,15 +41,30 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    setImpersonatedProfile(null)
     await supabase.auth.signOut()
   }
 
-  const isAdmin = profile?.role === 'admin'
-  const isKasserer = profile?.role === 'kasserer' || isAdmin
+  function startImpersonation(profile) {
+    setImpersonatedProfile(profile)
+  }
+
+  function stopImpersonation() {
+    setImpersonatedProfile(null)
+  }
+
+  const profile = impersonatedProfile || realProfile
+  const isImpersonating = !!impersonatedProfile
+  const isAdmin = realProfile?.role === 'admin'
+  const isKasserer = profile?.role === 'kasserer' || profile?.role === 'admin'
   const isMedlem = !!profile
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, isAdmin, isKasserer, isMedlem }}>
+    <AuthContext.Provider value={{
+      user, profile, realProfile, loading,
+      signIn, signOut, startImpersonation, stopImpersonation,
+      isAdmin, isKasserer, isMedlem, isImpersonating,
+    }}>
       {children}
     </AuthContext.Provider>
   )

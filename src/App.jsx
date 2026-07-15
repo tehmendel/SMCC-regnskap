@@ -21,6 +21,7 @@ import Reisekasse from './pages/Reisekasse'
 import CashCounts from './pages/CashCounts'
 import VippsConfig from './pages/admin/VippsConfig'
 import VippsStats from './pages/VippsStats'
+import Impersonate from './pages/Impersonate'
 
 function useVippsEnv() {
   const [env, setEnv] = useState(null)
@@ -76,6 +77,7 @@ function Sidebar() {
           <NavItem to="/brukere" icon="◉" label="Brukere" />
           <NavItem to="/logg" icon="◌" label="Endringslogg" />
           <NavItem to="/konfigurasjon/vipps" icon="⊡" label="Vipps-konfig" />
+          <NavItem to="/impersoner" icon="◑" label="Impersoner bruker" />
         </>
       )}
 
@@ -88,7 +90,7 @@ function Sidebar() {
 }
 
 function AppShell() {
-  const { profile, signOut } = useAuth()
+  const { profile, realProfile, signOut, isImpersonating, stopImpersonation } = useAuth()
   const vippsEnv = useVippsEnv()
   const isTest = vippsEnv === 'test'
 
@@ -106,8 +108,27 @@ function AppShell() {
             Vipps TEST
           </span>
         )}
-        <span className="topbar-user">{profile?.full_name}</span>
-        <span className="topbar-role">{profile?.role}</span>
+        {isImpersonating ? (
+          <>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{realProfile?.email}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>·</span>
+            <span style={{ fontSize: 12, color: 'var(--yellow)', fontWeight: 600 }}>
+              innlogget som {profile?.email || profile?.full_name}
+            </span>
+            <span className="topbar-role">{profile?.role}</span>
+            <button onClick={stopImpersonation} style={{
+              marginLeft: 8, background: 'var(--yellow)', border: 'none', cursor: 'pointer',
+              color: '#000', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 4,
+            }}>
+              Avslutt
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="topbar-user">{profile?.full_name}</span>
+            <span className="topbar-role">{profile?.role}</span>
+          </>
+        )}
         <button onClick={signOut} style={{
           marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer',
           color: 'var(--muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4,
@@ -136,6 +157,7 @@ function AppShell() {
           <Route path="/brukere" element={<ProtectedRoute requireAdmin><Users /></ProtectedRoute>} />
           <Route path="/logg" element={<ProtectedRoute requireAdmin><AuditLog /></ProtectedRoute>} />
           <Route path="/konfigurasjon/vipps" element={<ProtectedRoute requireAdmin><VippsConfig /></ProtectedRoute>} />
+          <Route path="/impersoner" element={<ProtectedRoute requireAdmin><Impersonate /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
