@@ -80,7 +80,7 @@ function Sidebar() {
       )}
 
       <div style={{ flex: 1 }} />
-      <div style={{ padding: '6px 20px 10px', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', opacity: 0.5 }}>
+      <div style={{ padding: '6px 20px 10px', fontSize: 11, color: 'var(--dim)', fontFamily: 'var(--font-mono)' }}>
         v{versionData.version}
       </div>
     </aside>

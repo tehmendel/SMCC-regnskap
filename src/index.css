@@ -40,7 +40,8 @@ html, body, #root {
   display: grid;
   grid-template-columns: 220px 1fr;
   grid-template-rows: 56px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
@@ -87,6 +88,7 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
 }
 
 .sidebar-item {
