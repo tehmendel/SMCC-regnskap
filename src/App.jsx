@@ -48,7 +48,7 @@ function NavItem({ to, icon, label, end }) {
 }
 
 function Sidebar() {
-  const { profile, signOut, isAdmin } = useAuth()
+  const { isAdmin } = useAuth()
 
   return (
     <aside className="sidebar">
@@ -80,12 +80,6 @@ function Sidebar() {
       )}
 
       <div style={{ flex: 1 }} />
-      <div style={{ padding: '8px 20px', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-        {profile?.full_name}
-      </div>
-      <button className="sidebar-item" onClick={signOut}>
-        <span>⊗</span> Logg ut
-      </button>
       <div style={{ padding: '6px 20px 10px', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', opacity: 0.5 }}>
         v{versionData.version}
       </div>
@@ -94,7 +88,7 @@ function Sidebar() {
 }
 
 function AppShell() {
-  const { profile } = useAuth()
+  const { profile, signOut } = useAuth()
   const vippsEnv = useVippsEnv()
   const isTest = vippsEnv === 'test'
 
@@ -114,6 +108,12 @@ function AppShell() {
         )}
         <span className="topbar-user">{profile?.full_name}</span>
         <span className="topbar-role">{profile?.role}</span>
+        <button onClick={signOut} style={{
+          marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer',
+          color: 'var(--muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <span>⊗</span> Logg ut
+        </button>
       </header>
       <Sidebar />
       <main className="main">
