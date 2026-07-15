@@ -10,7 +10,6 @@ const COLUMNS = [
   { key: 'name',        label: 'Navn' },
   { key: 'description', label: 'Beskrivelse' },
   { key: 'active',      label: 'Status' },
-  { key: 'actions',     label: 'Handlinger' },
 ]
 
 function CategoryModal({ category, onClose, onSaved }) {
